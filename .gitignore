@@ -13,3 +13,8 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# output directory for ansible script.
+scripts/out
+# SSH keys
+scripts/id_ed25519*

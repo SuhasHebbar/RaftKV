@@ -1,0 +1,28 @@
+---
+- name: Transfer and execute a script.
+  hosts: all
+  tasks:
+    - name: Copy private key
+      copy:
+        src: id_ed25519
+        dest: "./.ssh/id_ed25519"
+    - name: Copy public key
+      copy:
+        src: id_ed25519.pub
+        dest: "./.ssh/id_ed25519.pub"
+    - name: Copy ssh config
+      copy:
+        src: config
+        dest: "./.ssh/config"
+    - name: Copy and Execute the script 
+      script: ./setup.sh
+      args:
+        executable: bash -i
+      register: result
+    - name: Copy output to file
+      local_action:
+        module: copy
+        content: "{{ result.stdout }}"
+        dest: "./out/{{ inventory_hostname_short }}.txt"
+    # - debug:
+    #     msg: "{{ result.stdout_lines }}"
