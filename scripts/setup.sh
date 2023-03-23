@@ -27,7 +27,7 @@ fi
 if [[ "" == "$(which go)" ]]; then
   asdf plugin add golang
   asdf install golang 1.20.2
-  asdf global go 1.20.2
+  asdf global golang 1.20.2
 fi
 
 sudo apt update >> /dev/null
