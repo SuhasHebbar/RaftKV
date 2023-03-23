@@ -27,8 +27,8 @@ fi
 if [[ "" == "$(which go)" ]]; then
   asdf plugin add golang
   asdf install golang 1.20.2
+  asdf global go 1.20.2
 fi
-
 
 sudo apt update >> /dev/null
 sudo apt install -y htop python-is-python3 python3-plumbum nodejs hyperfine ripgrep trash-cli asciinema libfuse2
