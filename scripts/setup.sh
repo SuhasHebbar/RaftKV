@@ -31,7 +31,7 @@ fi
 
 
 sudo apt update >> /dev/null
-sudo apt install -y htop python-is-python3 python3-plumbum nodejs hyperfine ripgrep trash-cli asciinema libfuse2
+sudo apt install -y htop python-is-python3 python3-plumbum nodejs hyperfine ripgrep trash-cli asciinema libfuse2 protobuf-compiler
 
 if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
 	echo Adding \$HOME/bin to path
@@ -58,10 +58,11 @@ if [[ "" == "$(ls -ald suhas/$proj_name)" ]]; then
 
 fi
 
-if [[ ":$PATH:" != *":$HOME/go/bin:"* ]]; then
-	echo Adding \$HOME/go/	echo Adding \$HOME/bin to pathbin to path
-	mkdir -p ~/go/bin
-	echo "export PATH=\$HOME/go/bin:\$PATH" >> ~/.bashrc
+if [[ ":$PATH:" != *":$(go env GOPATH)/bin:"* ]]; then
+	gopath=$(go env GOPATH)
+
+	echo "export PATH=$gopath/bin:\$PATH" >> ~/.bashrc
+	export PATH=$gopath/bin:$PATH
 fi
 
 if [[ "" == "$(which protoc-gen-go)" || "" == "$(which protoc-gen-go-grpc)" ]]; then
