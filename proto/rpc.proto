@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+option go_package = "github.com/SuhasHebbar/CS739-P2/proto";
+/* import "google/protobuf/timestamp.proto"; */
+
+service RaftRpc {
+	rpc Get(Key) returns (GetResponse) {}
+	rpc Set(KeyValuePair) returns (Response) {}
+	rpc Delete(Key) returns (Response) {}
+}
+
+message Key {
+	string key = 1;
+}
+
+
+enum BinaryResponse {
+	SUCCESS = 0;
+	FAILURE = 1;
+}
+
+message Response {
+	BinaryResponse status = 1;
+}
+
+message GetResponse {
+	BinaryResponse status = 1;
+	string response = 2;
+}
+
+message KeyValuePair {
+	string key = 1;
+	string value = 2;
+}
+

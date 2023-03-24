@@ -1,4 +1,4 @@
-module github.com/SuhasHebbar/CS739-P2
+module github.com/SuhasHebbar/CS739-P2/client
 
 go 1.20
 
