@@ -25,7 +25,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	kvStore := kvstore.NewKVStore()
+	kvStore := kvstore.NewKVRpcServer()
 
 	pb.RegisterRaftRpcServer(grpcServer, kvStore)
 	grpcServer.Serve(lis)
