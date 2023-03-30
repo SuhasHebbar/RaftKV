@@ -27,6 +27,7 @@ fi
 if [[ "" == "$(which go)" ]]; then
   asdf plugin add golang
   asdf install golang 1.20.2
+  asdf global golang 1.20.2
 fi
 
 
@@ -75,6 +76,8 @@ if [[ "" == "$(which nvim)" ]]; then
 	curl -L https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -o ~/bin/nvim
 	chmod u+x ~/bin/nvim
 fi
+
+mkdir -p ~/.config
 
 rm -rf ~/.config/nvim
 rm -rf ~/hebbar2_config
