@@ -25,6 +25,8 @@ type RaftRpcClient interface {
 	Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*GetResponse, error)
 	Set(ctx context.Context, in *KeyValuePair, opts ...grpc.CallOption) (*Response, error)
 	Delete(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
+	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteReply, error)
+	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
 }
 
 type raftRpcClient struct {
@@ -62,6 +64,24 @@ func (c *raftRpcClient) Delete(ctx context.Context, in *Key, opts ...grpc.CallOp
 	return out, nil
 }
 
+func (c *raftRpcClient) RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteReply, error) {
+	out := new(RequestVoteReply)
+	err := c.cc.Invoke(ctx, "/RaftRpc/RequestVote", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftRpcClient) AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error) {
+	out := new(AppendEntriesResponse)
+	err := c.cc.Invoke(ctx, "/RaftRpc/AppendEntries", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftRpcServer is the server API for RaftRpc service.
 // All implementations must embed UnimplementedRaftRpcServer
 // for forward compatibility
@@ -69,6 +89,8 @@ type RaftRpcServer interface {
 	Get(context.Context, *Key) (*GetResponse, error)
 	Set(context.Context, *KeyValuePair) (*Response, error)
 	Delete(context.Context, *Key) (*Response, error)
+	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteReply, error)
+	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
 	mustEmbedUnimplementedRaftRpcServer()
 }
 
@@ -84,6 +106,12 @@ func (UnimplementedRaftRpcServer) Set(context.Context, *KeyValuePair) (*Response
 }
 func (UnimplementedRaftRpcServer) Delete(context.Context, *Key) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedRaftRpcServer) RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
+}
+func (UnimplementedRaftRpcServer) AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
 }
 func (UnimplementedRaftRpcServer) mustEmbedUnimplementedRaftRpcServer() {}
 
@@ -152,6 +180,42 @@ func _RaftRpc_Delete_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftRpc_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestVoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftRpcServer).RequestVote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/RaftRpc/RequestVote",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftRpcServer).RequestVote(ctx, req.(*RequestVoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RaftRpc_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppendEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftRpcServer).AppendEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/RaftRpc/AppendEntries",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftRpcServer).AppendEntries(ctx, req.(*AppendEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftRpc_ServiceDesc is the grpc.ServiceDesc for RaftRpc service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -170,6 +234,14 @@ var RaftRpc_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _RaftRpc_Delete_Handler,
+		},
+		{
+			MethodName: "RequestVote",
+			Handler:    _RaftRpc_RequestVote_Handler,
+		},
+		{
+			MethodName: "AppendEntries",
+			Handler:    _RaftRpc_AppendEntries_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -43,20 +43,20 @@ func NewKVStore() *KVStore {
 	}
 }
 
-type KVRpcServer struct {
+type SimpleKVRpcServer struct {
 	pb.UnimplementedRaftRpcServer
 	kv   KVStore
 	lock sync.Mutex
 }
 
-func NewKVRpcServer() *KVRpcServer {
-	return &KVRpcServer{
+func NewKVRpcServer() *SimpleKVRpcServer {
+	return &SimpleKVRpcServer{
 		kv:   *NewKVStore(),
 		lock: sync.Mutex{},
 	}
 }
 
-func (kvs *KVRpcServer) Get(c context.Context, key *pb.Key) (*pb.GetResponse, error) {
+func (kvs *SimpleKVRpcServer) Get(c context.Context, key *pb.Key) (*pb.GetResponse, error) {
 	kvs.lock.Lock()
 	defer kvs.lock.Unlock()
 
@@ -73,7 +73,7 @@ func (kvs *KVRpcServer) Get(c context.Context, key *pb.Key) (*pb.GetResponse, er
 	return response, nil
 }
 
-func (kvs *KVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) (*pb.Response, error) {
+func (kvs *SimpleKVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) (*pb.Response, error) {
 	kvs.lock.Lock()
 	defer kvs.lock.Unlock()
 
@@ -86,7 +86,7 @@ func (kvs *KVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) (*pb.R
 }
 
 // Return true if key existed previously and was removed, else return false.
-func (kvs *KVRpcServer) Delete(c context.Context, key *pb.Key) (*pb.Response, error) {
+func (kvs *SimpleKVRpcServer) Delete(c context.Context, key *pb.Key) (*pb.Response, error) {
 	kvs.lock.Lock()
 	defer kvs.lock.Unlock()
 
