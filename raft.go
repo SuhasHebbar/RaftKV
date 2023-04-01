@@ -46,12 +46,16 @@ type Raft struct {
 	// Persistent state on all servers
 	currentTerm int32
 	votedFor    PeerId
-	log        []LogEntry
+	log         []LogEntry
 
 	leaderId   PeerId
-	rpcCh      chan any
-	commitCh chan any
+	rpcCh      chan RpcCommand
+	commitCh   chan any
 	rpcHandler RpcServer
+
+	// volatile follower states.
+	heartBeatTimeout time.Duration
+	heartBeatTimer   *time.Timer
 }
 
 type LogEntry struct {
@@ -81,12 +85,15 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 		currentTerm: 0,
 		votedFor:    NIL_PEER,
-		log:        []LogEntry{},
+		log:         []LogEntry{},
 
 		leaderId:   NIL_PEER,
-		rpcCh:      make(chan any),
-		commitCh: make(chan any),
+		rpcCh:      make(chan RpcCommand),
+		commitCh:   make(chan any),
 		rpcHandler: rpcHandler,
+
+		heartBeatTimeout: -1,
+		heartBeatTimer:   nil,
 	}
 }
 
@@ -146,18 +153,129 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 
 }
 
-func (r *Raft) handleRpc(req any) error {
-	return nil
+// Reset heartbeat timer to hearbeat timeout
+func (r *Raft) resetHeartBeatTimer() {
+	if r.heartBeatTimer == nil {
+		return
+	}
+
+	if !r.heartBeatTimer.Stop() {
+		<- r.heartBeatTimer.C
+	}
+
+	r.heartBeatTimer.Reset(r.heartBeatTimeout)
+}
+
+
+type RpcCommand struct {
+	Command any
+	resp    chan any
+}
+
+func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
+	r.Debug("AppendEntries: %v", appendReq)
+
+	entriesReader := bytes.NewReader(appendReq.Entries)
+	entries := []LogEntry{}
+	dec := gob.NewDecoder(entriesReader)
+
+	dec.Decode(&entries)
+
+	if appendReq.Term > r.currentTerm {
+		r.becomeFollower(appendReq.Term)
+	}
+
+	appendRes := &pb.AppendEntriesResponse{}
+	appendRes.Success = false
+
+	if appendReq.Term < r.currentTerm {
+		return
+	}
+
+	if r.role != FOLLOWER {
+		r.becomeFollower(appendReq.Term)
+	}
+
+	r.resetHeartBeatTimer()
+
+	if appendReq.PrevLogIndex == -1 ||
+		int(appendReq.PrevLogIndex) < len(r.log) && appendReq.PrevLogTerm == r.log[appendReq.PrevLogIndex].Term {
+		appendRes.Success = true
+		logInsertOffset := int(appendReq.PrevLogIndex) + 1
+		entriesOffset := 0
+
+		for logInsertOffset < len(r.log) && entriesOffset < len(entries) {
+			if r.log[logInsertOffset].Term != entries[entriesOffset].Term {
+				break
+			}
+			logInsertOffset++
+			entriesOffset++
+		}
+
+		if entriesOffset < len(entries) {
+			r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
+			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
+		}
+
+		if appendReq.LeaderCommit > r.commitIndex {
+			oldCommitIndex := r.commitIndex
+			r.commitIndex = min32(r.commitIndex, int32(len(r.log)-1))
+			r.applyRange(oldCommitIndex, r.commitIndex)
+		}
+
+	}
+
+}
+
+func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteRequest) {
+	r.Debug("Received RequestVote term: %v, candidateId: %v, lastLogIndex: %v, lastLogTerm: %v", voteReq.Term, voteReq.CandidateId, voteReq.LastLogIndex, voteReq.LastLogTerm)
+
+	if voteReq.Term > r.currentTerm {
+		r.Debug("Becoming follower. term out of date")
+		r.becomeFollower(voteReq.Term)
+	}
+
+
+	voteRes := &pb.RequestVoteReply{
+		Term: r.currentTerm,
+		VoteGranted: false,
+		PeerId: r.id,
+	}
+
+
+	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) {
+		voteRes.VoteGranted = true
+		r.votedFor = voteReq.CandidateId
+		r.resetHeartBeatTimer()
+		r.Debug("Successful vote to %v", r.votedFor)
+	}
+
+	req.resp <- voteRes
+}
+
+func (r *Raft) handleSubmitOperation(req RpcCommand) {
+
+}
+
+func (r *Raft) handleRpc(req RpcCommand) {
+	switch v := req.Command.(type) {
+	case *pb.AppendEntriesRequest:
+		r.handleAppendEntries(req, v)
+	case *pb.RequestVoteRequest:
+		r.handleRequestVoteRequest(req, v)
+	default:
+		r.handleSubmitOperation(req)
+	}
 }
 
 type appendEntriesData struct {
-	request  *pb.AppendEntriesRequest
-	response *pb.AppendEntriesResponse
+	request    *pb.AppendEntriesRequest
+	response   *pb.AppendEntriesResponse
 	numEntries int32
 }
 
 type safeN1Channel struct {
-	C      chan *appendEntriesData
+	C       chan *appendEntriesData
 	closeCh chan Empty
 }
 
@@ -171,7 +289,10 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 		}
 
 		prevLogIndex := r.nextIndex[peerId] - 1
-		prevLogTerm := r.log[prevLogIndex].Term
+		prevLogTerm := int32(-1)
+		if prevLogIndex >= 0 {
+			prevLogTerm = r.log[prevLogIndex].Term
+		}
 
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
@@ -203,7 +324,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 
 			select {
 			case appendCh.C <- &appendEntriesData{request: appendReq, response: resp, numEntries: int32(numEntries)}:
-				case <-appendCh.closeCh:
+			case <-appendCh.closeCh:
 			}
 
 		}()
@@ -220,7 +341,13 @@ func (r *Raft) setRole(newRole string) {
 	r.role = newRole
 }
 
-func (r *Raft) handleAppendResponse(appendDat *appendEntriesData) {
+func (r *Raft) becomeFollower(term int32) {
+	r.setRole(FOLLOWER)
+	r.currentTerm = term
+	r.votedFor = -1
+}
+
+func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 	req := appendDat.request
 	res := appendDat.response
 	if req.Term != r.currentTerm || res.Term < r.currentTerm {
@@ -228,9 +355,7 @@ func (r *Raft) handleAppendResponse(appendDat *appendEntriesData) {
 	}
 
 	if res.Term > r.currentTerm {
-		r.setRole(FOLLOWER)
-		r.currentTerm = res.Term
-		r.votedFor = -1
+		r.becomeFollower(res.Term)
 		return
 	}
 
@@ -257,19 +382,16 @@ func (r *Raft) handleAppendResponse(appendDat *appendEntriesData) {
 				if r.matchIndex[peerId] >= i {
 					matches++
 				}
-				
+
 			}
 
-			if matches > r.peersSize() / 2 {
+			if matches > r.peersSize()/2 {
 				r.commitIndex = i
-				for j := oldCommitIndex; j <= i; j++ {
-					r.commitCh <- r.log[j].Operation
-				}
-				r.lastApplied = i
-				break;
+				r.applyRange(oldCommitIndex, i)
+				break
 			}
 
-		} 
+		}
 	} else {
 		// TODO: Not completely sure how to handle things here...
 		r.nextIndex[res.PeerId] = req.PrevLogIndex
@@ -277,13 +399,31 @@ func (r *Raft) handleAppendResponse(appendDat *appendEntriesData) {
 
 }
 
+func (r *Raft) applyRange(a, b int32) {
+	for j := a; j <= b; j++ {
+		r.commitCh <- r.log[j].Operation
+	}
+	r.lastApplied = b
+
+}
+
 func (r *Raft) runAsLeader() {
 	r.Debug("Running as leader for term %v.", r.currentTerm)
 
+
+	nextIndex := map[PeerId]int32{}
+	matchIndex := map[PeerId]int32{}
+
+	for peer := range r.peers {
+		nextIndex[peer] = int32(len(r.log))
+		matchIndex[peer] = -1
+	}
+
 	appendCh := safeN1Channel{
-		C:      make(chan *appendEntriesData, r.peersSize()),
+		C:       make(chan *appendEntriesData, r.peersSize()),
 		closeCh: make(chan Empty),
 	}
+	defer close(appendCh.closeCh)
 
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
@@ -294,7 +434,7 @@ func (r *Raft) runAsLeader() {
 		case <-time.After(getLeaderLease()):
 			r.broadcastAppendEntries(appendCh)
 		case appendRes := <-appendCh.C:
-			r.handleAppendResponse(appendRes)
+			r.handleAppendEntriesResponse(appendRes)
 		}
 	}
 
@@ -321,8 +461,7 @@ func (r *Raft) runAsCandidate() {
 			return
 		case vote := <-votesCh:
 			if vote.Term > r.currentTerm {
-				r.setRole(FOLLOWER)
-				r.currentTerm = vote.Term
+				r.becomeFollower(vote.Term)
 				r.Debug("Newer term. Fallback to follower")
 				return
 			}
@@ -345,20 +484,20 @@ func (r *Raft) runAsCandidate() {
 
 func (r *Raft) runAsFollower() {
 
-	heartBeatTimeout := getHeartbeatTimeout()
-
-	heartBeatTimer := time.NewTimer(heartBeatTimeout)
-	defer heartBeatTimer.Stop()
+	r.heartBeatTimeout = getHeartbeatTimeout()
+	r.heartBeatTimer = time.NewTimer(r.heartBeatTimeout)
+	defer func() {
+		r.heartBeatTimer.Stop()
+		r.heartBeatTimer = nil
+		r.heartBeatTimeout = -1
+	}()
 
 	for {
 		select {
 		case req := <-r.rpcCh:
 			// do nothing for now.
-			err := r.handleRpc(req)
-			if err == nil {
-				ResetTimer(heartBeatTimer, heartBeatTimeout)
-			}
-		case <-heartBeatTimer.C:
+			r.handleRpc(req)
+		case <-r.heartBeatTimer.C:
 			r.setRole(CANDIDATE)
 			return
 		}
