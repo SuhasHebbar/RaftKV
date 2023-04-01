@@ -1,5 +1,11 @@
 package main
 
+import (
+	"fmt"
+
+	"golang.org/x/exp/slog"
+)
+
 type Empty struct{}
 
 // Handle irritating unused variable warnings.
@@ -15,3 +21,12 @@ func min32(a, b int32) int32 {
     }
     return b
 }	
+
+func Infof(format string, args ...any) {
+    slog.Default().Info(fmt.Sprintf(format, args...))
+}
+
+
+func Debugf(format string, args ...any) {
+    slog.Default().Debug(fmt.Sprintf(format, args...))
+}

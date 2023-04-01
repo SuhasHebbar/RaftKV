@@ -5,18 +5,20 @@ import (
 	"context"
 	"encoding/gob"
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
-	"golang.org/x/exp/slog"
 )
 
-// Election timeouts in milliseconds
-const MIN_ELECTION_TIMEOUT = 150
-const MAX_ELECTION_TIMEOUT = 300
+const Amp = 30
 
-const RPC_TIMEOUT = 10 * time.Second
+// Election timeouts in milliseconds
+const MIN_ELECTION_TIMEOUT = 150 * Amp
+const MAX_ELECTION_TIMEOUT = 300 * Amp
+
+const RPC_TIMEOUT = 10 * time.Second * Amp
 
 const (
 	FOLLOWER  = "FOLLOWER"
@@ -106,7 +108,11 @@ func (r *Raft) minimumVotes() int {
 }
 
 func (r *Raft) Debug(msg string, args ...any) {
-	slog.Debug(string(r.id)+": "+msg, args...)
+	Debugf(strconv.Itoa(int(r.id))+": "+msg, args...)
+}
+
+func (r *Raft) Info(msg string, args ...any) {
+	Infof(strconv.Itoa(int(r.id))+": "+msg, args...)
 }
 
 func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
@@ -114,7 +120,12 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 	votesCh := make(chan *pb.RequestVoteReply, r.peersSize())
 
 	lastLogIndex := len(r.log) - 1
-	lastLogTerm := r.log[lastLogIndex].Term
+
+	lastLogTerm := int32(-1)
+	if lastLogIndex >= 0 {
+		lastLogTerm = r.log[lastLogIndex].Term
+
+	}
 
 	voteReq := &pb.RequestVoteRequest{
 		Term:         r.currentTerm,
@@ -139,7 +150,7 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 			voteRes, err := rpcClient.RequestVote(ctx, voteReq)
 
 			if err != nil {
-				r.Debug("Failed to call RequestVote for term: %v, with error: %v", r.currentTerm, err)
+				r.Debug("Failed to call RequestVote for term: %v, with error: %v", savedCurrentTerm, err)
 				votesCh <- &pb.RequestVoteReply{VoteGranted: false, Term: savedCurrentTerm}
 				return
 			}
@@ -160,12 +171,11 @@ func (r *Raft) resetHeartBeatTimer() {
 	}
 
 	if !r.heartBeatTimer.Stop() {
-		<- r.heartBeatTimer.C
+		<-r.heartBeatTimer.C
 	}
 
 	r.heartBeatTimer.Reset(r.heartBeatTimeout)
 }
-
 
 type RpcCommand struct {
 	Command any
@@ -173,7 +183,7 @@ type RpcCommand struct {
 }
 
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
-	r.Debug("AppendEntries: %v", appendReq)
+	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entriesReader := bytes.NewReader(appendReq.Entries)
 	entries := []LogEntry{}
@@ -235,13 +245,11 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		r.becomeFollower(voteReq.Term)
 	}
 
-
 	voteRes := &pb.RequestVoteReply{
-		Term: r.currentTerm,
+		Term:        r.currentTerm,
 		VoteGranted: false,
-		PeerId: r.id,
+		PeerId:      r.id,
 	}
-
 
 	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) {
 		voteRes.VoteGranted = true
@@ -258,6 +266,7 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 }
 
 func (r *Raft) handleRpc(req RpcCommand) {
+	r.Debug("Handling rpc command.")
 	switch v := req.Command.(type) {
 	case *pb.AppendEntriesRequest:
 		r.handleAppendEntries(req, v)
@@ -316,6 +325,9 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 			client := r.rpcHandler.GetClient(peerId)
 
 			ctx, _ := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+
+			r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
+
 			resp, err := client.AppendEntries(ctx, appendReq)
 			if err != nil {
 				r.Debug("Failed to send AppendEntries for term: %v, prevLogIndex: %v, prevLogTerm: %v, commitIndex: %v", savedCurrentTerm, prevLogIndex, prevLogTerm, appendReq.LeaderCommit)
@@ -410,7 +422,6 @@ func (r *Raft) applyRange(a, b int32) {
 func (r *Raft) runAsLeader() {
 	r.Debug("Running as leader for term %v.", r.currentTerm)
 
-
 	nextIndex := map[PeerId]int32{}
 	matchIndex := map[PeerId]int32{}
 
@@ -471,7 +482,7 @@ func (r *Raft) runAsCandidate() {
 			}
 
 			if currentVotes >= targetVotes {
-				r.Debug("Won election for term: %v, currentVotes: %v")
+				r.Debug("Won election for term: %v, currentVotes: %v", r.currentTerm, currentVotes)
 				r.setRole(LEADER)
 				r.leaderId = r.id
 				return
@@ -483,6 +494,7 @@ func (r *Raft) runAsCandidate() {
 }
 
 func (r *Raft) runAsFollower() {
+	r.Debug("Running a follower.")
 
 	r.heartBeatTimeout = getHeartbeatTimeout()
 	r.heartBeatTimer = time.NewTimer(r.heartBeatTimeout)
@@ -509,6 +521,7 @@ func (r *Raft) runAsFollower() {
 // a single thread of execution using channels.
 func (r *Raft) startServerLoop() {
 	for {
+		r.Debug("Running server loop")
 		switch r.role {
 		case FOLLOWER:
 			r.runAsFollower()
