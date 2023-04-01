@@ -3,73 +3,96 @@ package main
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/SuhasHebbar/CS739-P2/config"
+	"github.com/SuhasHebbar/CS739-P2/kvstore"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-
-
 func main() {
 	slog.Info("Not much going on right now!")
+	config := config.GetConfig()
 
-	serverAddress := flag.String("addr", "localhost:8000", "The address the server listens on in the format addr:port. For example localhost: 8000")
+	clients := map[int32]pb.RaftRpcClient{}
+	for k, url := range config.Peers {
+		opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
-	flag.Parse()
+		conn, err := grpc.Dial(url, opts...)
+		if err != nil {
+			slog.Error("Failed to dial", "err", err)
+			panic(err)
+		}
+		defer conn.Close()
 
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+		client := pb.NewRaftRpcClient(conn)
+		clients[k] = client
 
-	conn, err := grpc.Dial(*serverAddress, opts...)
-	if err != nil {
-		slog.Error("Failed to dial", "err", err)
-		// panic(err)
 	}
-	defer conn.Close()
-
-	client := pb.NewRaftRpcClient(conn)
 
 	reader := bufio.NewReader(os.Stdin)
-	for ;; {
+	for {
 		fmt.Printf("> ")
 		inputLine, _ := reader.ReadString('\n')
 		inputLine = strings.Replace(inputLine, "\n", "", -1)
 		fmt.Println(inputLine)
 
-		command, arguments, _ := strings.Cut(inputLine, " ")
+		clientIdStr, arguments, _ := strings.Cut(inputLine, " ")
+		if arguments == "" {
+			fmt.Println("Invalid operation!")
+			continue
+		}
+
+		clientId, err := strconv.Atoi(clientIdStr)
+		if err != nil {
+			fmt.Println("Invalid operation! Failed convert string to number")
+			continue
+
+		}
+
+		command, arguments, _ := strings.Cut(arguments, " ")
 		if arguments == "" {
 			fmt.Println("Invalid operation!")
 			continue
 		}
 
 		command = strings.ToLower(command)
-		
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if command == "get" {
-			key := pb.Key {Key: arguments}
-			response, err := client.Get(ctx, &key)
-			if err != nil {
-				slog.Error("err", err)
-			}
 
-			if response.Status == pb.BinaryResponse_SUCCESS {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+		if command == "get" {
+			key := pb.Key{Key: arguments}
+			response, err := clients[int32(clientId)].Get(ctx, &key)
+			if err != nil {
+				slog.Debug("err", err)
+			}
+			slog.Debug("Okay we're past this")
+
+			if err != nil {
+				if err.Error() == kvstore.NON_EXISTENT_KEY_MSG {
+					fmt.Println("<Value does not exist>")
+				} else {
+					fmt.Println(err)
+				}
+			} else if response.Ok == true {
 				fmt.Println(response.Response)
 			} else {
-				fmt.Println("<Value does not exist>")
+				fmt.Println("Someting went wrong!")
+
 			}
 		} else if command == "set" {
 			key, value, valid := strings.Cut(arguments, " ")
 			if valid {
 				kvPair := pb.KeyValuePair{Key: key, Value: value}
-				_, err := client.Set(ctx, &kvPair)
+				_, err := clients[int32(clientId)].Set(ctx, &kvPair)
 				if err != nil {
-					slog.Error("err", err)
+					slog.Debug("err", err)
 				}
 
 				fmt.Println("OK")
@@ -77,22 +100,24 @@ func main() {
 
 		} else if command == "delete" {
 
-			key := pb.Key {Key: arguments}
-			response, err := client.Delete(ctx, &key)
+			key := pb.Key{Key: arguments}
+			response, err := clients[int32(clientId)].Delete(ctx, &key)
 			if err != nil {
-				slog.Error("err", err)
+				slog.Debug("err", err)
 			}
 
-			if response.Status == pb.BinaryResponse_SUCCESS {
+			if response.Ok == true {
 				fmt.Printf("Deleted %v\n", arguments)
-			} else {
+			} else if err.Error() == kvstore.NON_EXISTENT_KEY_MSG {
 				fmt.Println("<Value does not exist>")
+			} else {
+				fmt.Println("Someting went wrong!")
+
 			}
 		} else {
 			fmt.Println("Invalid operation!")
 		}
 		cancel()
-
 
 	}
 }

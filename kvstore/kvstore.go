@@ -56,20 +56,18 @@ func NewKVRpcServer() *SimpleKVRpcServer {
 	}
 }
 
-func (kvs *SimpleKVRpcServer) Get(c context.Context, key *pb.Key) (*pb.GetResponse, error) {
+func (kvs *SimpleKVRpcServer) Get(c context.Context, key *pb.Key) (*pb.Response, error) {
 	kvs.lock.Lock()
 	defer kvs.lock.Unlock()
 
 	val, err := kvs.kv.Get(key.Key)
-
-	var status pb.BinaryResponse
+	response := &pb.Response{Response: val, Ok: true}
 	if err != nil {
-		status = pb.BinaryResponse_FAILURE
-	} else {
-		status = pb.BinaryResponse_SUCCESS
+		response.Ok = false
+		response.Response = err.Error()
+
 	}
 
-	response := &pb.GetResponse{Response: val, Status: status}
 	return response, nil
 }
 
@@ -79,7 +77,7 @@ func (kvs *SimpleKVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) 
 
 	kvs.kv.Set(keyValue.Key, keyValue.Value)
 	response := &pb.Response{
-		Status: pb.BinaryResponse_SUCCESS,
+		Ok: true,
 	}
 
 	return response, nil
@@ -91,11 +89,13 @@ func (kvs *SimpleKVRpcServer) Delete(c context.Context, key *pb.Key) (*pb.Respon
 	defer kvs.lock.Unlock()
 
 	err := kvs.kv.Delete(key.Key)
-	status := pb.BinaryResponse_SUCCESS
+
+	response := &pb.Response{Ok: true}
 	if err != nil {
-		status = pb.BinaryResponse_FAILURE
+		response.Ok = false
+		response.Response = err.Error()
+
 	}
 
-	response := &pb.Response{Status: status}
 	return response, nil
 }

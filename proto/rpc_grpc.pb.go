@@ -22,7 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RaftRpcClient interface {
-	Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*GetResponse, error)
+	Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
 	Set(ctx context.Context, in *KeyValuePair, opts ...grpc.CallOption) (*Response, error)
 	Delete(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
 	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteReply, error)
@@ -37,8 +37,8 @@ func NewRaftRpcClient(cc grpc.ClientConnInterface) RaftRpcClient {
 	return &raftRpcClient{cc}
 }
 
-func (c *raftRpcClient) Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*GetResponse, error) {
-	out := new(GetResponse)
+func (c *raftRpcClient) Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
 	err := c.cc.Invoke(ctx, "/RaftRpc/Get", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func (c *raftRpcClient) AppendEntries(ctx context.Context, in *AppendEntriesRequ
 // All implementations must embed UnimplementedRaftRpcServer
 // for forward compatibility
 type RaftRpcServer interface {
-	Get(context.Context, *Key) (*GetResponse, error)
+	Get(context.Context, *Key) (*Response, error)
 	Set(context.Context, *KeyValuePair) (*Response, error)
 	Delete(context.Context, *Key) (*Response, error)
 	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteReply, error)
@@ -98,7 +98,7 @@ type RaftRpcServer interface {
 type UnimplementedRaftRpcServer struct {
 }
 
-func (UnimplementedRaftRpcServer) Get(context.Context, *Key) (*GetResponse, error) {
+func (UnimplementedRaftRpcServer) Get(context.Context, *Key) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
 func (UnimplementedRaftRpcServer) Set(context.Context, *KeyValuePair) (*Response, error) {

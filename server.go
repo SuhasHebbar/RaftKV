@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/SuhasHebbar/CS739-P2/config"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -26,7 +27,7 @@ func main() {
 
 	id := int32(*idArg)
 
-	config := GetConfig()
+	config := config.GetConfig()
 
 	lis, err := net.Listen("tcp", config.Peers[id])
 

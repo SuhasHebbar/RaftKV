@@ -12,7 +12,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 30
+const Amp = 60
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -52,7 +52,7 @@ type Raft struct {
 
 	leaderId   PeerId
 	rpcCh      chan RpcCommand
-	commitCh   chan any
+	commitCh   chan CommittedOperation
 	rpcHandler RpcServer
 
 	// volatile follower states.
@@ -91,7 +91,7 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 		leaderId:   NIL_PEER,
 		rpcCh:      make(chan RpcCommand),
-		commitCh:   make(chan any),
+		commitCh:   make(chan CommittedOperation),
 		rpcHandler: rpcHandler,
 
 		heartBeatTimeout: -1,
@@ -197,6 +197,8 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 
 	appendRes := &pb.AppendEntriesResponse{}
 	appendRes.Success = false
+	appendRes.Term = r.currentTerm
+	appendRes.PeerId = r.id
 
 	if appendReq.Term < r.currentTerm {
 		return
@@ -207,10 +209,19 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	}
 
 	r.resetHeartBeatTimer()
+ 	// r.Debug("Entry size being pushed is %v", len(entries))
 
+	// if len(entries) > 0 {
+	// 	r.Debug("Non zero log entry to be pushed!")
+	// 	for _, val := range entries {
+	// 		r.Debug("This entry has term %v", val.Term)
+	// 	}
+	// }
 	if appendReq.PrevLogIndex == -1 ||
 		int(appendReq.PrevLogIndex) < len(r.log) && appendReq.PrevLogTerm == r.log[appendReq.PrevLogIndex].Term {
 		appendRes.Success = true
+		appendRes.Term = appendReq.Term
+
 		logInsertOffset := int(appendReq.PrevLogIndex) + 1
 		entriesOffset := 0
 
@@ -227,13 +238,17 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
 		}
 
+		// r.Debug("leadercommit: %v, localcommitindex: %v", appendReq.LeaderCommit, r.commitIndex)
 		if appendReq.LeaderCommit > r.commitIndex {
 			oldCommitIndex := r.commitIndex
-			r.commitIndex = min32(r.commitIndex, int32(len(r.log)-1))
-			r.applyRange(oldCommitIndex, r.commitIndex)
+			r.commitIndex = min32(appendReq.LeaderCommit, int32(len(r.log)-1))
+			r.Debug("Commit index changing from %v to %v", oldCommitIndex, r.commitIndex)
+			r.applyRange(oldCommitIndex + 1, r.commitIndex)
 		}
 
 	}
+
+	req.resp <- appendRes
 
 }
 
@@ -262,7 +277,17 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 }
 
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
+	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log) - 1)
+	var pendingOperation PendingOperation
+	if r.role != LEADER {
+		pendingOperation.isLeader = false
+	} else {
+		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation:req.Command})
+		pendingOperation.isLeader = true
+		pendingOperation.logIndex = int32(len(r.log)) - 1
+	}
 
+	req.resp <- pendingOperation
 }
 
 func (r *Raft) handleRpc(req RpcCommand) {
@@ -330,9 +355,11 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 
 			resp, err := client.AppendEntries(ctx, appendReq)
 			if err != nil {
-				r.Debug("Failed to send AppendEntries for term: %v, prevLogIndex: %v, prevLogTerm: %v, commitIndex: %v", savedCurrentTerm, prevLogIndex, prevLogTerm, appendReq.LeaderCommit)
+				r.Debug("Failed to send AppendEntries for term: %v, prevLogIndex: %v, prevLogTerm: %v, commitIndex: %v, err: %v", savedCurrentTerm, prevLogIndex, prevLogTerm, appendReq.LeaderCommit, err)
 				return
 			}
+
+			r.Debug("Received AppendEntries response.")
 
 			select {
 			case appendCh.C <- &appendEntriesData{request: appendReq, response: resp, numEntries: int32(numEntries)}:
@@ -362,25 +389,29 @@ func (r *Raft) becomeFollower(term int32) {
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 	req := appendDat.request
 	res := appendDat.response
+	// r.Debug("Received AppendEntries response from %v. currentTerm: %v, reqTerm: %v, resTerm: %v", appendDat.response.PeerId, r.currentTerm, req.Term, res.Term)
 	if req.Term != r.currentTerm || res.Term < r.currentTerm {
 		return
 	}
 
 	if res.Term > r.currentTerm {
+		r.Debug("currentTerm: %v, newTerm: %v", r.currentTerm, res.Term)
 		r.becomeFollower(res.Term)
 		return
 	}
 
 	if res.Success {
+		r.Debug("Got appendEntries reply from %v with old matchIndex: %v, nextIndex: %v", res.PeerId, r.matchIndex[res.PeerId], r.nextIndex[res.PeerId])
 		newMatchIndex := req.PrevLogIndex + appendDat.numEntries
+		// r.Debug("newMatchIndex: %v", newMatchIndex)
 		if newMatchIndex > r.matchIndex[res.PeerId] {
 			r.matchIndex[res.PeerId] = newMatchIndex
 		}
 
 		r.nextIndex[res.PeerId] = newMatchIndex + 1
-		r.Debug("Got appendEntries repply from %v with new nextIndex %v", res.PeerId, r.nextIndex[res.PeerId])
+		r.Debug("Got appendEntries reply from %v with new matchIndex: %v, nextIndex: %v", res.PeerId, r.matchIndex[res.PeerId], r.nextIndex[res.PeerId])
 		oldCommitIndex := r.commitIndex
-		for i := newMatchIndex; i > oldCommitIndex; i-- {
+		for i := newMatchIndex; i >= oldCommitIndex && i >= 0; i-- {
 			if r.log[i].Term != r.currentTerm {
 				continue
 			}
@@ -397,9 +428,10 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 			}
 
+			// r.Debug("For index %v we have %v matches", i, matches)
 			if matches > r.peersSize()/2 {
 				r.commitIndex = i
-				r.applyRange(oldCommitIndex, i)
+				r.applyRange(oldCommitIndex + 1, i)
 				break
 			}
 
@@ -411,9 +443,22 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 }
 
+type CommittedOperation struct {
+	Operation any
+	Index int32
+}
+
 func (r *Raft) applyRange(a, b int32) {
 	for j := a; j <= b; j++ {
-		r.commitCh <- r.log[j].Operation
+		// r.Debug("Applying operation for log %v", j)
+		operation := r.log[j].Operation
+
+		_, ok := operation.(Empty)
+		// Empty operations do not need to be applied to the state machine
+		if ok {
+			continue
+		}
+		r.commitCh <- CommittedOperation{Operation: operation, Index: j}
 	}
 	r.lastApplied = b
 
@@ -436,14 +481,24 @@ func (r *Raft) runAsLeader() {
 	}
 	defer close(appendCh.closeCh)
 
+	dummyEntry := LogEntry{
+		Term: r.currentTerm,
+		Operation: Empty{},
+	}
+
+	// Add dummy entry to ensure previous term entries are commited on followers.
+	r.log = append(r.log, dummyEntry)
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
+
+	heartbeatTimer := time.After(getLeaderLease()) 
 	for r.role == LEADER {
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
-		case <-time.After(getLeaderLease()):
+		case <- heartbeatTimer:
 			r.broadcastAppendEntries(appendCh)
+			heartbeatTimer = time.After(getLeaderLease()) 
 		case appendRes := <-appendCh.C:
 			r.handleAppendEntriesResponse(appendRes)
 		}
