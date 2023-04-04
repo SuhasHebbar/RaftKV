@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/SuhasHebbar/CS739-P2/config"
-	"github.com/SuhasHebbar/CS739-P2/kvstore"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -21,7 +20,7 @@ const NOT_LEADER = "Server is not a leader."
 type RaftRpcServer struct {
 	raft       *Raft
 	clients    map[PeerId]pb.RaftRpcClient
-	kv         *kvstore.KVStore
+	kv         *KVStore
 	pendingOps map[int32]chan any
 	mu         sync.Mutex
 	pb.UnimplementedRaftRpcServer
@@ -75,7 +74,7 @@ func NewRaftRpcServer(id PeerId, config *config.Config) *RaftRpcServer {
 	self := &RaftRpcServer{}
 	self.raft = NewRaft(id, peers, self)
 	self.clients = clients
-	self.kv = kvstore.NewKVStore()
+	self.kv = NewKVStore()
 	self.pendingOps = map[int32]chan any{}
 
 	gob.Register(Empty{})

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"net"
 
-	"github.com/SuhasHebbar/CS739-P2/kvstore"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -26,7 +25,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	kvStore := kvstore.NewKVRpcServer()
+	kvStore := NewKVRpcServer()
 
 	pb.RegisterRaftRpcServer(grpcServer, kvStore)
 	grpcServer.Serve(lis)

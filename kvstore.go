@@ -1,4 +1,4 @@
-package kvstore
+package main
 
 import (
 	"context"

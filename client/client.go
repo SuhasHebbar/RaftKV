@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/SuhasHebbar/CS739-P2/config"
-	"github.com/SuhasHebbar/CS739-P2/kvstore"
+	distkvstore "github.com/SuhasHebbar/CS739-P2"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -75,7 +75,7 @@ func main() {
 			slog.Debug("Okay we're past this")
 
 			if err != nil {
-				if err.Error() == kvstore.NON_EXISTENT_KEY_MSG {
+				if err.Error() == distkvstore.NON_EXISTENT_KEY_MSG {
 					fmt.Println("<Value does not exist>")
 				} else {
 					fmt.Println(err)
@@ -108,7 +108,7 @@ func main() {
 
 			if response.Ok == true {
 				fmt.Printf("Deleted %v\n", arguments)
-			} else if err.Error() == kvstore.NON_EXISTENT_KEY_MSG {
+			} else if err.Error() == distkvstore.NON_EXISTENT_KEY_MSG {
 				fmt.Println("<Value does not exist>")
 			} else {
 				fmt.Println("Someting went wrong!")
