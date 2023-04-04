@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/SuhasHebbar/CS739-P2/config"
+	"github.com/SuhasHebbar/CS739-P2/common"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -47,7 +47,7 @@ type PendingOperation struct {
 	logIndex int32
 }
 
-func NewRaftRpcServer(id PeerId, config *config.Config) *RaftRpcServer {
+func NewRaftRpcServer(id PeerId, config *common.Config) *RaftRpcServer {
 	peers := map[PeerId]Empty{}
 	clients := map[PeerId]pb.RaftRpcClient{}
 

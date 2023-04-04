@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SuhasHebbar/CS739-P2/config"
+	"github.com/SuhasHebbar/CS739-P2/common"
 	distkvstore "github.com/SuhasHebbar/CS739-P2"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
@@ -19,7 +19,7 @@ import (
 
 func main() {
 	slog.Info("Not much going on right now!")
-	config := config.GetConfig()
+	config := common.GetConfig()
 
 	clients := map[int32]pb.RaftRpcClient{}
 	for k, url := range config.Peers {
