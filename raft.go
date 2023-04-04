@@ -115,9 +115,7 @@ func (r *Raft) Info(msg string, args ...any) {
 	Infof(strconv.Itoa(int(r.id))+": "+msg, args...)
 }
 
-func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
-	savedCurrentTerm := r.currentTerm
-	votesCh := make(chan *pb.RequestVoteReply, r.peersSize())
+func (r *Raft) lastLogDetails() (int32, int32) {
 
 	lastLogIndex := len(r.log) - 1
 
@@ -126,6 +124,15 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 		lastLogTerm = r.log[lastLogIndex].Term
 
 	}
+
+	return int32(lastLogIndex), lastLogTerm
+}
+
+func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
+	savedCurrentTerm := r.currentTerm
+	votesCh := make(chan *pb.RequestVoteReply, r.peersSize())
+
+	lastLogIndex, lastLogTerm := r.lastLogDetails()
 
 	voteReq := &pb.RequestVoteRequest{
 		Term:         r.currentTerm,
@@ -209,7 +216,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	}
 
 	r.resetHeartBeatTimer()
- 	// r.Debug("Entry size being pushed is %v", len(entries))
+	// r.Debug("Entry size being pushed is %v", len(entries))
 
 	// if len(entries) > 0 {
 	// 	r.Debug("Non zero log entry to be pushed!")
@@ -243,7 +250,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 			oldCommitIndex := r.commitIndex
 			r.commitIndex = min32(appendReq.LeaderCommit, int32(len(r.log)-1))
 			r.Debug("Commit index changing from %v to %v", oldCommitIndex, r.commitIndex)
-			r.applyRange(oldCommitIndex + 1, r.commitIndex)
+			r.applyRange(oldCommitIndex+1, r.commitIndex)
 		}
 
 	}
@@ -260,13 +267,15 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		r.becomeFollower(voteReq.Term)
 	}
 
+	lastLogIndex, lastLogTerm := r.lastLogDetails()
+
 	voteRes := &pb.RequestVoteReply{
 		Term:        r.currentTerm,
 		VoteGranted: false,
 		PeerId:      r.id,
 	}
 
-	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) {
+	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) && ((voteReq.LastLogTerm > lastLogTerm) || (voteReq.LastLogTerm == lastLogTerm && voteReq.LastLogIndex >= lastLogIndex)) {
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
 		r.resetHeartBeatTimer()
@@ -277,12 +286,12 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 }
 
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
-	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log) - 1)
+	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
 	if r.role != LEADER {
 		pendingOperation.isLeader = false
 	} else {
-		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation:req.Command})
+		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation: req.Command})
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -431,7 +440,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 			// r.Debug("For index %v we have %v matches", i, matches)
 			if matches > r.peersSize()/2 {
 				r.commitIndex = i
-				r.applyRange(oldCommitIndex + 1, i)
+				r.applyRange(oldCommitIndex+1, i)
 				break
 			}
 
@@ -445,7 +454,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 type CommittedOperation struct {
 	Operation any
-	Index int32
+	Index     int32
 }
 
 func (r *Raft) applyRange(a, b int32) {
@@ -482,7 +491,7 @@ func (r *Raft) runAsLeader() {
 	defer close(appendCh.closeCh)
 
 	dummyEntry := LogEntry{
-		Term: r.currentTerm,
+		Term:      r.currentTerm,
 		Operation: Empty{},
 	}
 
@@ -491,14 +500,14 @@ func (r *Raft) runAsLeader() {
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
 
-	heartbeatTimer := time.After(getLeaderLease()) 
+	heartbeatTimer := time.After(getLeaderLease())
 	for r.role == LEADER {
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
-		case <- heartbeatTimer:
+		case <-heartbeatTimer:
 			r.broadcastAppendEntries(appendCh)
-			heartbeatTimer = time.After(getLeaderLease()) 
+			heartbeatTimer = time.After(getLeaderLease())
 		case appendRes := <-appendCh.C:
 			r.handleAppendEntriesResponse(appendRes)
 		}
