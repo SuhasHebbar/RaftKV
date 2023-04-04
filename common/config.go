@@ -16,6 +16,7 @@ func Debugf(format string, args ...any) {
 
 type Config struct {
 	Peers map[int32]string `json:"peers"`
+	Partitioned bool
 }
 
 func GetConfig() Config {

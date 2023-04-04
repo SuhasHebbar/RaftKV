@@ -12,10 +12,14 @@ import (
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	empty "github.com/golang/protobuf/ptypes/empty"
+	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 )
 
 const REQUEST_TERMINATED = "Request was terminated."
 const NOT_LEADER = "Server is not a leader."
+const SIMULATED_PARTITION = "Simulated Partition"
 
 type RaftRpcServer struct {
 	raft       *Raft
@@ -24,6 +28,7 @@ type RaftRpcServer struct {
 	pendingOps map[int32]chan any
 	mu         sync.Mutex
 	pb.UnimplementedRaftRpcServer
+	config *common.Config
 }
 
 type RpcServer interface {
@@ -76,6 +81,7 @@ func NewRaftRpcServer(id PeerId, config *common.Config) *RaftRpcServer {
 	self.clients = clients
 	self.kv = NewKVStore()
 	self.pendingOps = map[int32]chan any{}
+	self.config = config
 
 	gob.Register(Empty{})
 	gob.Register(Operation{})
@@ -133,6 +139,12 @@ func (rs *RaftRpcServer) GetClient(peerId PeerId) pb.RaftRpcClient {
 }
 
 func (rs *RaftRpcServer) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	cmd := RpcCommand{
 		Command: in,
 		resp:    make(chan any, 1),
@@ -150,6 +162,12 @@ func (rs *RaftRpcServer) RequestVote(ctx context.Context, in *pb.RequestVoteRequ
 }
 
 func (rs *RaftRpcServer) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	cmd := RpcCommand{
 		Command: in,
 		resp:    make(chan any, 1),
@@ -190,6 +208,12 @@ func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand)
 }
 
 func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name: GET,
 		Key:  key.Key,
@@ -224,6 +248,12 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 	panic(res)
 }
 func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name:  SET,
 		Key:   kvp.Key,
@@ -244,6 +274,12 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 	return &pb.Response{Ok: true}, nil
 }
 func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name: DELETE,
 		Key:  key.Key,
@@ -286,4 +322,9 @@ func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) any {
 	case result := <-pendingOpsCh:
 		return result
 	}
+}
+
+func (rs *RaftRpcServer) Partition(ctx context.Context, in *wrappers.BoolValue) (*empty.Empty, error) {
+	rs.config.Partitioned = in.Value
+	return &empty.Empty{}, nil
 }

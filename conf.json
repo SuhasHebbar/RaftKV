@@ -3,5 +3,6 @@
 		"0": "localhost:9001",
 		"1": "localhost:9002",
 		"2": "localhost:9003"
-	}
+	},
+	"partitioned": false
 }
