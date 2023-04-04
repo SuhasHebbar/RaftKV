@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
+	"golang.org/x/exp/slog"
 )
 
 const Amp = 5
@@ -50,6 +53,10 @@ type Raft struct {
 	votedFor    PeerId
 	log         []LogEntry
 
+	// Persistence file names
+	voteFileName string
+	logFileName  string
+
 	leaderId   PeerId
 	rpcCh      chan RpcCommand
 	commitCh   chan CommittedOperation
@@ -74,6 +81,29 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		matchIndex[peer] = -1
 	}
 
+	// Get persisted vote and log if it exists(Server is recovering)
+	voteFileName := fmt.Sprint("raftVote_", addr)
+	logFileName := fmt.Sprint("raftLog_", addr)
+
+	p := Persistence{}
+	_, err := os.Stat(voteFileName)
+
+	vote := Vote{currentTerm: 0, votedFor: -1}
+	log := []LogEntry{}
+
+	if os.IsExist(err) {
+		vote, err = p.readVote(voteFileName)
+		if err != nil {
+			slog.Error("Error while reading persisted vote", "err", err)
+			panic("Not able to read persisted data")
+		}
+		log, err = p.readLog(logFileName)
+		if err != nil {
+			slog.Error("Error while reading persisted vote", "err", err)
+			panic("Not able to read persisted data")
+		}
+	}
+
 	return &Raft{
 		id:    addr,
 		peers: peers,
@@ -85,9 +115,12 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		nextIndex:  nextIndex,
 		matchIndex: matchIndex,
 
-		currentTerm: 0,
-		votedFor:    NIL_PEER,
-		log:         []LogEntry{},
+		currentTerm: vote.currentTerm,
+		votedFor:    vote.votedFor,
+		log:         log,
+
+		voteFileName: voteFileName,
+		logFileName:  logFileName,
 
 		leaderId:   NIL_PEER,
 		rpcCh:      make(chan RpcCommand),
@@ -243,6 +276,9 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		if entriesOffset < len(entries) {
 			r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
+			// persist log entries
+			p := Persistence{log: entries[entriesOffset:]}
+			p.writeLog(r.logFileName)
 		}
 
 		// r.Debug("leadercommit: %v, localcommitindex: %v", appendReq.LeaderCommit, r.commitIndex)
@@ -278,6 +314,9 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) && ((voteReq.LastLogTerm > lastLogTerm) || (voteReq.LastLogTerm == lastLogTerm && voteReq.LastLogIndex >= lastLogIndex)) {
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
+		// persist votedFor and term
+		p := Persistence{vote: Vote{currentTerm: r.currentTerm, votedFor: r.votedFor}}
+		p.writeVote(r.voteFileName)
 		r.resetHeartBeatTimer()
 		r.Debug("Successful vote to %v", r.votedFor)
 	}
@@ -293,6 +332,9 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 		pendingOperation.isLeader = false
 	} else {
 		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation: req.Command})
+		//persist log entries
+		p := Persistence{log: []LogEntry{{Term: r.currentTerm, Operation: req.Command}}}
+		p.writeLog(r.logFileName)
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -395,6 +437,9 @@ func (r *Raft) becomeFollower(term int32, leader PeerId) {
 	r.currentTerm = term
 	r.votedFor = -1
 	r.leaderId = NIL_PEER
+	// persist votedFor and term
+	p := Persistence{vote: Vote{currentTerm: r.currentTerm, votedFor: r.votedFor}}
+	p.writeVote(r.voteFileName)
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
@@ -528,6 +573,11 @@ func (r *Raft) runAsCandidate() {
 	targetVotes := r.minimumVotes()
 	// Vote for self
 	currentVotes := 1
+	r.votedFor = r.id
+
+	// persist votedFor and term
+	p := Persistence{vote: Vote{currentTerm: r.currentTerm, votedFor: r.votedFor}}
+	p.writeVote(r.voteFileName)
 
 	for r.role == CANDIDATE {
 		select {
