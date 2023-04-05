@@ -1,5 +1,4 @@
-//go:build exclude
-package main
+package kv
 
 import (
 	"flag"
@@ -10,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func main() {
+func SimpleServerEntryPoint() {
 	slog.Info("Nothing here yet!")
 
 	listenAddress := flag.String("addr", "localhost:8000", "The address the server listens on in the format addr:port. For example localhost: 8000")

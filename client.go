@@ -1,4 +1,4 @@
-package main
+package kv
 
 import (
 	"bufio"
@@ -9,16 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SuhasHebbar/CS739-P2/common"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func main() {
-	slog.Info("Not much going on right now!")
-	config := common.GetConfig()
+func ClientEntryPoint() {
+	config := GetConfig()
 
 	clients := map[int32]pb.RaftRpcClient{}
 	for k, url := range config.Peers {
@@ -74,7 +72,7 @@ func main() {
 			slog.Debug("Okay we're past this")
 
 			if err != nil {
-				if err.Error() == common.NON_EXISTENT_KEY_MSG {
+				if err.Error() == NON_EXISTENT_KEY_MSG {
 					fmt.Println("<Value does not exist>")
 				} else {
 					fmt.Println(err)
@@ -107,7 +105,7 @@ func main() {
 
 			if response.Ok == true {
 				fmt.Printf("Deleted %v\n", arguments)
-			} else if err.Error() == common.NON_EXISTENT_KEY_MSG {
+			} else if err.Error() == NON_EXISTENT_KEY_MSG {
 				fmt.Println("<Value does not exist>")
 			} else {
 				fmt.Println("Someting went wrong!")

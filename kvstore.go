@@ -1,13 +1,14 @@
-package main
+package kv
 
 import (
 	"context"
 	"errors"
 	"sync"
 
-	"github.com/SuhasHebbar/CS739-P2/common"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
+
+const NON_EXISTENT_KEY_MSG = "key does not exist."
 
 type KVStore struct {
 	store map[string]string
@@ -19,7 +20,7 @@ func (kv *KVStore) Get(key string) (string, error) {
 	if hasKey {
 		return val, nil
 	} else {
-		return "", errors.New(common.NON_EXISTENT_KEY_MSG)
+		return "", errors.New(NON_EXISTENT_KEY_MSG)
 	}
 }
 
@@ -30,7 +31,7 @@ func (kv *KVStore) Set(key, value string) {
 func (kv *KVStore) Delete(key string) error {
 	_, hasKey := kv.store[key]
 	if !hasKey {
-		return errors.New(common.NON_EXISTENT_KEY_MSG)
+		return errors.New(NON_EXISTENT_KEY_MSG)
 	}
 	delete(kv.store, key)
 	return nil

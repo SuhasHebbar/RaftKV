@@ -1,4 +1,4 @@
-package main
+package kv
 
 import (
 	"encoding/json"
@@ -7,7 +7,8 @@ import (
 )
 
 type Config struct {
-	Peers map[PeerId]string `json:"peers"`
+	Peers map[int32]string `json:"peers"`
+	Partitioned bool
 }
 
 func GetConfig() Config {

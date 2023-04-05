@@ -1,17 +1,16 @@
-package main
+package kv
 
 import (
 	"flag"
 	"net"
 	"os"
 
-	"github.com/SuhasHebbar/CS739-P2/common"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 )
 
-func main() {
+func ServerEntryPoint() {
 	opts := slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}
@@ -27,7 +26,7 @@ func main() {
 
 	id := int32(*idArg)
 
-	config := common.GetConfig()
+	config := GetConfig()
 
 	lis, err := net.Listen("tcp", config.Peers[id])
 

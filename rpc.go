@@ -1,4 +1,4 @@
-package main
+package kv
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/SuhasHebbar/CS739-P2/common"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
@@ -28,7 +27,7 @@ type RaftRpcServer struct {
 	pendingOps map[int32]chan any
 	mu         sync.Mutex
 	pb.UnimplementedRaftRpcServer
-	config *common.Config
+	config *Config
 }
 
 type RpcServer interface {
@@ -53,7 +52,7 @@ type PendingOperation struct {
 	logIndex int32
 }
 
-func NewRaftRpcServer(id PeerId, config *common.Config) *RaftRpcServer {
+func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 	peers := map[PeerId]Empty{}
 	clients := map[PeerId]pb.RaftRpcClient{}
 
