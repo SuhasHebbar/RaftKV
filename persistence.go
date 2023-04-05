@@ -2,15 +2,15 @@ package kv
 
 import (
 	"bytes"
-	"encoding/binary"
+	"encoding/gob"
 	"io"
 	"os"
 	"unsafe"
 )
 
 type Vote struct {
-	currentTerm int32
-	votedFor    PeerId
+	CurrentTerm int32
+	VotedFor    PeerId
 }
 
 type Persistence struct {
@@ -19,19 +19,23 @@ type Persistence struct {
 }
 
 func (p *Persistence) writeLog(filename string) error {
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND, 0777)
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0777)
 	if err != nil {
+		Debugf("Error is in openfile")
 		return err
 	}
 	defer file.Close()
 	for _, logentry := range p.log {
-		var buf bytes.Buffer
-		err = binary.Write(&buf, binary.LittleEndian, logentry)
+		buf := new(bytes.Buffer)
+		enc := gob.NewEncoder(buf)
+		//err = binary.Write(&buf, binary.LittleEndian, logentry)
+		err = enc.Encode(logentry)
 		if err != nil {
 			return err
 		}
 		_, err = file.Write(buf.Bytes())
 		if err != nil {
+			Debugf("Error is in Write")
 			return err
 		}
 	}
@@ -44,8 +48,10 @@ func (p *Persistence) writeVote(filename string) error {
 		return err
 	}
 	defer file.Close()
-	var buf bytes.Buffer
-	err = binary.Write(&buf, binary.LittleEndian, p.vote)
+	buf := new(bytes.Buffer)
+	enc := gob.NewEncoder(buf)
+	//err = binary.Write(buf, binary.LittleEndian, p.vote)
+	err = enc.Encode(p.vote)
 	if err != nil {
 		return err
 	}
@@ -72,9 +78,11 @@ func (p *Persistence) readLog(filename string) ([]LogEntry, error) {
 			}
 			return []LogEntry{}, err
 		}
-		buffer := bytes.NewBuffer(data)
+		buf := bytes.NewBuffer(data)
+		dec := gob.NewDecoder(buf)
 		var logentry LogEntry
-		err = binary.Read(buffer, binary.LittleEndian, &logentry)
+		//err = binary.Read(buf, binary.LittleEndian, &logentry)
+		err = dec.Decode(&logentry)
 		if err != nil {
 			return []LogEntry{}, err
 		}
@@ -86,19 +94,21 @@ func (p *Persistence) readLog(filename string) ([]LogEntry, error) {
 func (p *Persistence) readVote(filename string) (Vote, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return Vote{}, err
+		return Vote{CurrentTerm: 0, VotedFor: -1}, err
 	}
 	defer file.Close()
 	data := make([]byte, unsafe.Sizeof(Vote{}))
 	_, err = file.Read(data)
 	if err != nil {
-		return Vote{}, err
+		return Vote{CurrentTerm: 0, VotedFor: -1}, err
 	}
-	buffer := bytes.NewBuffer(data)
+	buf := bytes.NewBuffer(data)
+	dec := gob.NewDecoder(buf)
 	var vote Vote
-	err = binary.Read(buffer, binary.LittleEndian, &vote)
+	//err = binary.Read(buf, binary.LittleEndian, &vote)
+	err = dec.Decode(&vote)
 	if err != nil {
-		return Vote{}, err
+		return Vote{CurrentTerm: 0, VotedFor: -1}, err
 	}
 	return vote, nil
 }
