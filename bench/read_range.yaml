@@ -1,0 +1,15 @@
+# Read range, 5% writes
+
+# Number of keys to generate
+num_keys: 1024
+
+# one of [random, read_recent, read_modify_update, read_range]
+# read range reads 8 entries at once
+mode: read_range
+
+# Proportion of write operations
+write_prop: 0.5
+
+# Contiguous range of keys to scan
+# Applicable only in mode read_range
+range_scan_num_keys: 8
