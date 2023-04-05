@@ -12,7 +12,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 1
+const Amp = 5
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -623,7 +623,7 @@ func getHeartbeatTimeout() time.Duration {
 }
 
 func getRandomTimeout(minTimeout, maxTimeout int) time.Duration {
-	return time.Duration(minTimeout +
-		rand.Intn(1+maxTimeout-minTimeout)*int(time.Millisecond),
+	return time.Duration((minTimeout +
+		rand.Intn(1+maxTimeout-minTimeout)) * int(time.Millisecond),
 	)
 }
