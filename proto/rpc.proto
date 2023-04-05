@@ -49,6 +49,8 @@ message Key {
 message Response {
 	bool ok = 1;
 	string response = 2;
+	bool isLeader = 3;
+	int32 newLeader = 4;
 }
 
 message KeyValuePair {

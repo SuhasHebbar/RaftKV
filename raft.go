@@ -199,7 +199,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	dec.Decode(&entries)
 
 	if appendReq.Term > r.currentTerm {
-		r.becomeFollower(appendReq.Term)
+		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
 	}
 
 	appendRes := &pb.AppendEntriesResponse{}
@@ -212,7 +212,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	}
 
 	if r.role != FOLLOWER {
-		r.becomeFollower(appendReq.Term)
+		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
 	}
 
 	r.resetHeartBeatTimer()
@@ -264,7 +264,7 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 
 	if voteReq.Term > r.currentTerm {
 		r.Debug("Becoming follower. term out of date")
-		r.becomeFollower(voteReq.Term)
+		r.becomeFollower(voteReq.Term, voteReq.CandidateId)
 	}
 
 	lastLogIndex, lastLogTerm := r.lastLogDetails()
@@ -288,6 +288,7 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
 	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
+	pendingOperation.currentLeader = r.leaderId
 	if r.role != LEADER {
 		pendingOperation.isLeader = false
 	} else {
@@ -389,10 +390,11 @@ func (r *Raft) setRole(newRole string) {
 	r.role = newRole
 }
 
-func (r *Raft) becomeFollower(term int32) {
+func (r *Raft) becomeFollower(term int32, leader PeerId) {
 	r.setRole(FOLLOWER)
 	r.currentTerm = term
 	r.votedFor = -1
+	r.leaderId = NIL_PEER
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
@@ -405,7 +407,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 	if res.Term > r.currentTerm {
 		r.Debug("currentTerm: %v, newTerm: %v", r.currentTerm, res.Term)
-		r.becomeFollower(res.Term)
+		r.becomeFollower(res.Term, res.PeerId)
 		return
 	}
 
@@ -536,7 +538,7 @@ func (r *Raft) runAsCandidate() {
 			return
 		case vote := <-votesCh:
 			if vote.Term > r.currentTerm {
-				r.becomeFollower(vote.Term)
+				r.becomeFollower(vote.Term, vote.PeerId)
 				r.Debug("Newer term. Fallback to follower")
 				return
 			}
@@ -575,6 +577,7 @@ func (r *Raft) runAsFollower() {
 			r.handleRpc(req)
 		case <-r.heartBeatTimer.C:
 			r.setRole(CANDIDATE)
+			r.leaderId = NIL_PEER
 			return
 		}
 	}
