@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +14,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func ClientEntryPoint() {
-	config := GetConfig()
+var clients = map[int32]pb.RaftRpcClient{}
+var leaderId int = 0
+var config = GetConfig()
 
-	clients := map[int32]pb.RaftRpcClient{}
+func ClientEntryPoint() {
+	opts := slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+
+	textHandler := opts.NewTextHandler(os.Stdout)
+	logger := slog.New(textHandler)
+	slog.SetDefault(logger)
+
 	for k, url := range config.Peers {
 		opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
@@ -39,22 +47,7 @@ func ClientEntryPoint() {
 		fmt.Printf("> ")
 		inputLine, _ := reader.ReadString('\n')
 		inputLine = strings.Replace(inputLine, "\n", "", -1)
-		fmt.Println(inputLine)
-
-		clientIdStr, arguments, _ := strings.Cut(inputLine, " ")
-		if arguments == "" {
-			fmt.Println("Invalid operation!")
-			continue
-		}
-
-		clientId, err := strconv.Atoi(clientIdStr)
-		if err != nil {
-			fmt.Println("Invalid operation! Failed convert string to number")
-			continue
-
-		}
-
-		command, arguments, _ := strings.Cut(arguments, " ")
+		command, arguments, _ := strings.Cut(inputLine, " ")
 		if arguments == "" {
 			fmt.Println("Invalid operation!")
 			continue
@@ -64,57 +57,131 @@ func ClientEntryPoint() {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
 		if command == "get" {
-			key := pb.Key{Key: arguments}
-			response, err := clients[int32(clientId)].Get(ctx, &key)
-			if err != nil {
-				slog.Debug("err", err)
-			}
-			slog.Debug("Okay we're past this")
-
-			if err != nil {
-				if err.Error() == NON_EXISTENT_KEY_MSG {
-					fmt.Println("<Value does not exist>")
-				} else {
-					fmt.Println(err)
-				}
-			} else if response.Ok == true {
-				fmt.Println(response.Response)
-			} else {
-				fmt.Println("Someting went wrong!")
-
-			}
+			handleGet(arguments, ctx)
 		} else if command == "set" {
-			key, value, valid := strings.Cut(arguments, " ")
-			if valid {
-				kvPair := pb.KeyValuePair{Key: key, Value: value}
-				_, err := clients[int32(clientId)].Set(ctx, &kvPair)
-				if err != nil {
-					slog.Debug("err", err)
-				}
-
-				fmt.Println("OK")
-			}
-
+			handleSet(arguments, ctx)
 		} else if command == "delete" {
+			handleDelete(arguments, ctx)
 
-			key := pb.Key{Key: arguments}
-			response, err := clients[int32(clientId)].Delete(ctx, &key)
-			if err != nil {
-				slog.Debug("err", err)
-			}
-
-			if response.Ok == true {
-				fmt.Printf("Deleted %v\n", arguments)
-			} else if err.Error() == NON_EXISTENT_KEY_MSG {
-				fmt.Println("<Value does not exist>")
-			} else {
-				fmt.Println("Someting went wrong!")
-
-			}
 		} else {
 			fmt.Println("Invalid operation!")
 		}
 		cancel()
+
+	}
+}
+
+func handleGet(keystr string, ctx context.Context) {
+
+	key := pb.Key{Key: keystr}
+	fmt.Println(keystr)
+	var response *pb.Response
+	var err error
+	for i := 0; i < len(config.Peers); i++ {
+		clientId := (leaderId + i) % len(config.Peers)
+		fmt.Println("Trying leaderId", clientId)
+		response, err = clients[int32(clientId)].Get(ctx, &key)
+
+		if response == nil {
+			continue
+		}
+		if !response.IsLeader {
+			continue
+		}
+
+		leaderId = clientId
+		break
+	}
+	if err != nil || (response != nil && !response.IsLeader) {
+		slog.Debug("err", err)
+		return
+
+	}
+	slog.Debug("Okay we're past this")
+
+	if err != nil {
+		if err.Error() == NON_EXISTENT_KEY_MSG {
+			fmt.Println("<Value does not exist>")
+		} else {
+			fmt.Println(err)
+		}
+	} else if response.Ok == true {
+		fmt.Println(response.Response)
+	} else {
+		fmt.Println("Someting went wrong!")
+
+	}
+
+}
+
+func handleSet(arguments string, ctx context.Context) {
+	key, value, valid := strings.Cut(arguments, " ")
+	if !valid {
+		fmt.Println("Something went wrong")
+		return
+	}
+
+	kvPair := pb.KeyValuePair{Key: key, Value: value}
+
+	var response *pb.Response
+	var err error
+	for i := 0; i < len(config.Peers); i++ {
+		clientId := (leaderId + i) % len(config.Peers)
+		fmt.Println("Trying leaderId", clientId)
+		response, err = clients[int32(leaderId)].Set(ctx, &kvPair)
+		if response == nil {
+			continue
+		}
+		if !response.IsLeader {
+			continue
+		}
+
+		leaderId = clientId
+		break
+	}
+
+	if err != nil || (response != nil && !response.IsLeader) {
+		slog.Debug("err", err)
+		return
+	}
+
+	fmt.Println("OK")
+
+}
+
+func handleDelete(arguments string, ctx context.Context) {
+
+	key := pb.Key{Key: arguments}
+
+	var response *pb.Response
+	var err error
+	for i := 0; i < len(config.Peers); i++ {
+		clientId := (leaderId + i) % len(config.Peers)
+		fmt.Println("Trying leaderId", clientId)
+		response, err = clients[int32(leaderId)].Delete(ctx, &key)
+
+		if response == nil {
+			continue
+		}
+		if !response.IsLeader {
+			continue
+		}
+
+		leaderId = clientId
+		break
+	}
+
+	if response != nil && !response.IsLeader {
+		slog.Debug("Not leader")
+		return
+	}
+
+	if response.Ok == true {
+		fmt.Printf("Deleted %v\n", arguments)
+	} else if err.Error() == NON_EXISTENT_KEY_MSG {
+		fmt.Println("<Value does not exist>")
+	} else {
+		fmt.Println("Someting went wrong!")
 
 	}
 }
