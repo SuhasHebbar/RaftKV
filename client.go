@@ -81,6 +81,7 @@ func handleGet(keystr string, ctx context.Context) {
 		clientId := (leaderId + i) % len(config.Peers)
 		fmt.Println("Trying leaderId", clientId)
 		response, err = clients[int32(clientId)].Get(ctx, &key)
+		Debugf("response %v, err %v", response, err)
 
 		if response == nil {
 			continue
@@ -128,7 +129,8 @@ func handleSet(arguments string, ctx context.Context) {
 	for i := 0; i < len(config.Peers); i++ {
 		clientId := (leaderId + i) % len(config.Peers)
 		fmt.Println("Trying leaderId", clientId)
-		response, err = clients[int32(leaderId)].Set(ctx, &kvPair)
+		response, err = clients[int32(clientId)].Set(ctx, &kvPair)
+		Debugf("response %v, err %v", response, err)
 		if response == nil {
 			continue
 		}

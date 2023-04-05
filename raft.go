@@ -12,7 +12,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 60
+const Amp = 1
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -382,11 +382,11 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 }
 
 func (r *Raft) setRole(newRole string) {
+	r.Debug("Changing role from %v to %v", r.role, newRole)
 	if r.role == newRole {
 		return
 	}
 
-	r.Debug("Changing role from %v to %v", r.role, newRole)
 	r.role = newRole
 }
 
@@ -611,7 +611,7 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderLease() time.Duration {
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 2)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getElectionTimeout() time.Duration {
