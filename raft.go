@@ -89,7 +89,6 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 	_, err := os.Stat(voteFileName)
 
 	vote := Vote{currentTerm: 0, votedFor: -1}
-	log := []LogEntry{}
 
 	if os.IsExist(err) {
 		vote, err = p.readVote(voteFileName)
@@ -97,9 +96,16 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 			slog.Error("Error while reading persisted vote", "err", err)
 			panic("Not able to read persisted data")
 		}
+	}
+
+	_, err = os.Stat(logFileName)
+
+	log := []LogEntry{}
+
+	if os.IsExist(err) {
 		log, err = p.readLog(logFileName)
 		if err != nil {
-			slog.Error("Error while reading persisted vote", "err", err)
+			slog.Error("Error while reading persisted log", "err", err)
 			panic("Not able to read persisted data")
 		}
 	}
