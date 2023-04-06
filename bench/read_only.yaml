@@ -1,4 +1,4 @@
-# Read recent, writes 5%
+# Read random, writes 5%
 
 # Number of keys to generate
 num_keys: 1024
@@ -8,7 +8,7 @@ num_keys: 1024
 mode: read_recent
 
 # Proportion of write operations
-write_prop: 0.05
+write_prop: 0
 
 # Contiguous range of keys to scan
 # Applicable only in mode read_range

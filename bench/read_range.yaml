@@ -8,7 +8,7 @@ num_keys: 1024
 mode: read_range
 
 # Proportion of write operations
-write_prop: 0.5
+write_prop: 0.05
 
 # Contiguous range of keys to scan
 # Applicable only in mode read_range

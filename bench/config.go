@@ -1,46 +1,67 @@
 package bench
 
 import (
-	"github.com/spf13/viper"
+    "github.com/spf13/viper"
+    "golang.org/x/exp/slog"
 )
 
 type Config struct {
-	// IP address of all the replicas
-	Replicas map[int32]string `mapstructure:"replicas"`
+    // IP address of all the replicas
+    Replicas map[int32]string `mapstructure:"replicas"`
 
-	// Number of keys to generate
-	NumKeys int32 `mapstructure:"num_keys"`
+    // Number of keys to generate
+    NumKeys int32 `mapstructure:"num_keys"`
 
-	// one of [random, read_recent, read_modify_update, read_range]
-	// read range reads 8 entries at once
-	Mode string `mapstructure:"mode"`
+    // one of [random, read_recent, read_modify_update, read_range]
+    // read range reads 8 entries at once
+    Mode string `mapstructure:"mode"`
 
-	// Proportion of write operations
-	WriteProp float64 `mapstructure:"write_prop"`
+    // Proportion of write operations
+    WriteProp float32 `mapstructure:"write_prop"`
 
-	// Contiguous range of keys to scan
-	// Applicable only in mode read_range
-	RangeScanNumKeys int32 `mapstructure:"range_scan_num_keys"`
+    // Contiguous range of keys to scan
+    // Applicable only in mode read_range
+    RangeScanNumKeys int32 `mapstructure:"range_scan_num_keys"`
+
+    // Length of each key
+    KeyLen int32 `mapstructure:"key_len"`
+
+    // Length of each value
+    ValLen int32 `mapstructure:"val_len"`
+
+    // Populate all the keys in the domain to avoid read failures
+    PopulateAllKeys bool `mapstructure:"populate_all_keys"`
 }
 
-func GetConfig(confname string) Config {
-	// set viper defaults
-	viper.SetDefault("num_keys", 1024)
-	viper.SetDefault("mode", "random")
-	viper.SetDefault("write_prop", 0.5)
-	viper.SetDefault("range_scan_num_keys", 8)
+const (
+    RANDOM = "random"
+    READ_RECENT = "read_recent"
+    READ_MODIFY_UPDATE = "read_modify_update"
+    READ_RANGE = "read_range"
+)
 
-	viper.SetConfigName(confname) // config filename
-	viper.SetConfigType("yaml") // yaml config
-	viper.AddConfigPath(".") // look for bench_config.yaml in the current working directoy
+func GetConfig(confname string) *Config {
+    // set viper defaults
+    viper.SetDefault("num_keys", 1024)
+    viper.SetDefault("mode", "random")
+    viper.SetDefault("write_prop", 0.5)
+    viper.SetDefault("range_scan_num_keys", 8)
+    viper.SetDefault("key_len", 8)
+    viper.SetDefault("val_len", 8)
+    viper.SetDefault("populate_all_keys", true)
 
-	// read config options from file
-	if err := viper.ReadInConfig(); err != nil {
-		panic("Requires a config file!")
-	}
+    viper.SetConfigName(confname) // config filename
+    viper.SetConfigType("yaml") // yaml config
+    viper.AddConfigPath(".") // look for bench_config.yaml in the current working directoy
 
-	// Unmarshal config into our struct
-	var config Config
-	viper.Unmarshal(&config)
-	return config
+    // read config options from file
+    if err := viper.ReadInConfig(); err != nil {
+        slog.Error("Failed to read config", "err", err)
+        panic("Requires a config file!")
+    }
+
+    // Unmarshal config into our struct
+    config := &Config{}
+    viper.Unmarshal(config)
+    return config
 }
