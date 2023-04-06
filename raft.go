@@ -1,9 +1,7 @@
 package kv
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -12,7 +10,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 5
+const Amp = 30
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -48,7 +46,7 @@ type Raft struct {
 	// Persistent state on all servers
 	currentTerm int32
 	votedFor    PeerId
-	log         []LogEntry
+	log         []*pb.LogEntry
 
 	leaderId   PeerId
 	rpcCh      chan RpcCommand
@@ -58,11 +56,6 @@ type Raft struct {
 	// volatile follower states.
 	heartBeatTimeout time.Duration
 	heartBeatTimer   *time.Timer
-}
-
-type LogEntry struct {
-	Term      int32
-	Operation any
 }
 
 func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
@@ -87,7 +80,7 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 		currentTerm: 0,
 		votedFor:    NIL_PEER,
-		log:         []LogEntry{},
+		log:         []*pb.LogEntry{},
 
 		leaderId:   NIL_PEER,
 		rpcCh:      make(chan RpcCommand),
@@ -192,11 +185,8 @@ type RpcCommand struct {
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
 	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
-	entriesReader := bytes.NewReader(appendReq.Entries)
-	entries := []LogEntry{}
-	dec := gob.NewDecoder(entriesReader)
+	entries := appendReq.Entries
 
-	dec.Decode(&entries)
 
 	if appendReq.Term > r.currentTerm {
 		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
@@ -292,7 +282,11 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 	if r.role != LEADER {
 		pendingOperation.isLeader = false
 	} else {
-		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation: req.Command})
+		op, ok := req.Command.(*pb.Operation)
+		if !ok {
+			panic("Received no Operation type")
+		}
+		r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -338,21 +332,15 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 			prevLogTerm = r.log[prevLogIndex].Term
 		}
 
-		var buf bytes.Buffer
-		enc := gob.NewEncoder(&buf)
 		entries := r.log[r.nextIndex[peerId]:]
 		numEntries := len(entries)
-		if err := enc.Encode(entries); err != nil {
-			r.Debug("Failed to encode. exiting")
-			panic(err)
-		}
 
 		appendReq := &pb.AppendEntriesRequest{
 			Term:         savedCurrentTerm,
 			LeaderId:     r.id,
 			PrevLogIndex: prevLogIndex,
 			PrevLogTerm:  prevLogTerm,
-			Entries:      buf.Bytes(),
+			Entries:      entries,
 			LeaderCommit: r.commitIndex,
 		}
 
@@ -455,7 +443,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 }
 
 type CommittedOperation struct {
-	Operation any
+	Operation *pb.Operation
 	Index     int32
 }
 
@@ -464,9 +452,8 @@ func (r *Raft) applyRange(a, b int32) {
 		// r.Debug("Applying operation for log %v", j)
 		operation := r.log[j].Operation
 
-		_, ok := operation.(Empty)
 		// Empty operations do not need to be applied to the state machine
-		if ok {
+		if operation.Type == pb.OperationType_NOOP {
 			continue
 		}
 		r.commitCh <- CommittedOperation{Operation: operation, Index: j}
@@ -492,9 +479,9 @@ func (r *Raft) runAsLeader() {
 	}
 	defer close(appendCh.closeCh)
 
-	dummyEntry := LogEntry{
+	dummyEntry := &pb.LogEntry{
 		Term:      r.currentTerm,
-		Operation: Empty{},
+		Operation: &pb.Operation{Type: pb.OperationType_NOOP},
 	}
 
 	// Add dummy entry to ensure previous term entries are commited on followers.

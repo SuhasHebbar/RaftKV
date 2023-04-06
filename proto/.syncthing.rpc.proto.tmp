@@ -19,7 +19,7 @@ message AppendEntriesRequest {
 	int32 leaderId = 2;
 	int32 prevLogIndex = 3;
 	int32 prevLogTerm = 4;
-	repeated LogEntry entries = 5;
+	bytes entries = 5;
 	int32 leaderCommit = 6;
 }
 
@@ -56,23 +56,4 @@ message Response {
 message KeyValuePair {
 	string key = 1;
 	string value = 2;
-}
-
-enum OperationType {
-	NOOP = 0;
-	GET = 1;
-	SET = 2;
-	DELETE = 3;
-}
-
-message Operation {
-	OperationType type = 1;
-	string key = 2;
-	string value = 3;
-}
-
-message LogEntry {
-	int32 term = 1;
-	int32 index = 2;
-	Operation operation = 3;
 }

@@ -2,9 +2,7 @@ package kv
 
 import (
 	"context"
-	"encoding/gob"
 	"errors"
-	"reflect"
 	"sync"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
@@ -32,18 +30,6 @@ type RaftRpcServer struct {
 
 type RpcServer interface {
 	GetClient(peerId PeerId) pb.RaftRpcClient
-}
-
-const (
-	GET    = "GET"
-	SET    = "SET"
-	DELETE = "DELETE"
-)
-
-type Operation struct {
-	Name  string
-	Key   string
-	Value string
 }
 
 type PendingOperation struct {
@@ -83,9 +69,6 @@ func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 	self.pendingOps = map[int32]chan any{}
 	self.config = config
 
-	gob.Register(Empty{})
-	gob.Register(Operation{})
-
 	go func() {
 		self.raft.startServerLoop()
 	}()
@@ -98,21 +81,17 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 	for {
 		op := <-rs.raft.commitCh
 		Debugf("Received operation for index %v", op.Index)
-		kvop, ok := op.Operation.(Operation)
-		if !ok {
-			Debugf("Committed operation of wrong type. Actual type is %v", reflect.TypeOf(op.Operation))
-			panic("Trouble!")
-		}
+		kvop := op.Operation
 
 		var result any
-		if kvop.Name == GET {
+		if kvop.Type == pb.OperationType_GET {
 			value, err := rs.kv.Get(kvop.Key)
 			if err != nil {
 				result = err
 			} else {
 				result = value
 			}
-		} else if kvop.Name == SET {
+		} else if kvop.Type == pb.OperationType_SET {
 			rs.kv.Set(kvop.Key, kvop.Value)
 			result = nil
 
@@ -212,8 +191,8 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 
 	}
 
-	op := Operation{
-		Name: GET,
+	op := &pb.Operation{
+		Type:  pb.OperationType_GET,
 		Key:  key.Key,
 	}
 
@@ -254,8 +233,8 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 
 	}
 
-	op := Operation{
-		Name:  SET,
+	op := &pb.Operation{
+		Type:  pb.OperationType_SET,
 		Key:   kvp.Key,
 		Value: kvp.Value,
 	}
@@ -287,8 +266,8 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 
 	}
 
-	op := Operation{
-		Name: DELETE,
+	op := &pb.Operation{
+		Type: pb.OperationType_DELETE,
 		Key:  key.Key,
 	}
 
