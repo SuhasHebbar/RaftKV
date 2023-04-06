@@ -2,24 +2,24 @@ package kv
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
-	"golang.org/x/exp/slog"
 )
 
-const Amp = 30
+const Amp = 50
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
 const MAX_ELECTION_TIMEOUT = 300 * Amp
 
 const RPC_TIMEOUT = 10 * time.Second * Amp
+
+const VOTE_FILE_TEMPLATE = "raftvotes"
+const LOG_FILE_TEMPLATE = "raftlogs"
 
 const (
 	FOLLOWER  = "FOLLOWER"
@@ -51,10 +51,6 @@ type Raft struct {
 	votedFor    PeerId
 	log         []*pb.LogEntry
 
-	// Persistence file names
-	voteFileName string
-	logFileName  string
-
 	leaderId   PeerId
 	rpcCh      chan RpcCommand
 	commitCh   chan CommittedOperation
@@ -63,6 +59,10 @@ type Raft struct {
 	// volatile follower states.
 	heartBeatTimeout time.Duration
 	heartBeatTimer   *time.Timer
+
+	p *Persistence
+	voteFileName string
+	logFileName string
 }
 
 func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
@@ -74,43 +74,20 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		matchIndex[peer] = -1
 	}
 
-	// Get persisted vote and log if it exists(Server is recovering)
-	voteFileName := fmt.Sprint("raftVote_", addr)
-	logFileName := fmt.Sprint("raftLog_", addr)
+	voteFileName := getVoteFileName(addr)
+	logFileName := getLogFileName(addr)
 
-	p := Persistence{}
-	_, err := os.Stat(voteFileName)
+	p := &Persistence{}
 
-	vote := Vote{CurrentTerm: 0, VotedFor: -1}
+	vote, err1 := p.ReadVote(voteFileName)
+	logs, _ := p.ReadLog(logFileName)
 
-	var err1 error
-
-	if !os.IsNotExist(err) {
-		vote, err1 = p.ReadVote(voteFileName)
-		if err1 != nil {
-			slog.Error("Error while reading persisted vote", "err", err1)
-		}
+	if err1 != nil {
+		vote = &pb.StoredVote{Term: 0, VotedFor: -1}
 	}
 
-	_, err = os.Stat(logFileName)
-
-	log := []LogEntry{}
-
-	var err2 error
-
-	if !os.IsNotExist(err) {
-		log, err2 = p.ReadLog(logFileName)
-		if err2 != nil {
-			slog.Error("Error while reading persisted log", "err", err2)
-		}
-	}
-
-	// If there is error reading any persisted data set them to default values
-	// Raft should take care of updating them to correct values
-	if err1 != nil || err2 != nil {
-		vote = Vote{CurrentTerm: 0, VotedFor: -1}
-		log = []LogEntry{}
-	}
+	p.StoredVote = vote
+	p.StoredLogs = logs
 
 	return &Raft{
 		id:    addr,
@@ -123,12 +100,9 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		nextIndex:  nextIndex,
 		matchIndex: matchIndex,
 
-		currentTerm: vote.CurrentTerm,
+		currentTerm: vote.Term,
 		votedFor:    vote.VotedFor,
-		log:         log,
-
-		voteFileName: voteFileName,
-		logFileName:  logFileName,
+		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
 		rpcCh:      make(chan RpcCommand),
@@ -137,6 +111,10 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 		heartBeatTimeout: -1,
 		heartBeatTimer:   nil,
+
+		p: p,
+		voteFileName: voteFileName,
+		logFileName: logFileName,
 	}
 }
 
@@ -194,7 +172,8 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 			rpcClient := r.rpcHandler.GetClient(peerId)
 			r.Debug("Sending vote for term %v to peer %v", savedCurrentTerm, peerId)
 
-			ctx, _ := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			defer cancel()
 			voteRes, err := rpcClient.RequestVote(ctx, voteReq)
 
 			if err != nil {
@@ -282,11 +261,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 			r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
 			// persist log entries
-			p := Persistence{log: entries[entriesOffset:]}
-			err := p.WriteLog(r.logFileName)
-			if err != nil {
-				r.Debug("Error while persisting log data for server : %v and log offset : %v in handleAppendEntries err : %v", r.id, logInsertOffset, err)
-			}
+			r.persistLogs()
 		}
 
 		// r.Debug("leadercommit: %v, localcommitindex: %v", appendReq.LeaderCommit, r.commitIndex)
@@ -323,11 +298,7 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
 		// persist votedFor and term
-		p := Persistence{vote: Vote{CurrentTerm: r.currentTerm, VotedFor: r.votedFor}}
-		err := p.WriteVote(r.voteFileName)
-		if err != nil {
-			r.Debug("Error while persisting vote data for server : %v in handleRequestVoteRequest err : %v", r.id, err)
-		}
+		r.persistVotes()
 		r.resetHeartBeatTimer()
 		r.Debug("Successful vote to %v", r.votedFor)
 	}
@@ -347,13 +318,8 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 			panic("Received no Operation type")
 		}
 		r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
+		r.persistLogs()
 
-		// TODO: Persist whole logs
-		// p := Persistence{log: []LogEntry{{Term: r.currentTerm, Operation: req.Command}}}
-		// err := p.WriteLog(r.logFileName)
-		// if err != nil {
-		// 	r.Debug("Error while persisting log data for server : %v in handleSubmitOperation err : %v", r.id, err)
-		// }
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -414,7 +380,8 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
 
-			ctx, _ := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			defer cancel()
 
 			r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
@@ -451,11 +418,7 @@ func (r *Raft) becomeFollower(term int32, leader PeerId) {
 	r.votedFor = -1
 	r.leaderId = NIL_PEER
 	// persist votedFor and term
-	p := Persistence{vote: Vote{CurrentTerm: r.currentTerm, VotedFor: r.votedFor}}
-	err := p.WriteVote(r.voteFileName)
-	if err != nil {
-		r.Debug("Error while persisting vote data for server : %v in becomeFollower err : %v", r.id, err)
-	}
+	r.persistVotes()
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
@@ -560,11 +523,7 @@ func (r *Raft) runAsLeader() {
 	// Add dummy entry to ensure previous term entries are commited on followers.
 	r.log = append(r.log, dummyEntry)
 	// persist log entries
-	p := Persistence{log: []LogEntry{dummyEntry}}
-	err := p.WriteLog(r.logFileName)
-	if err != nil {
-		r.Debug("Error while persisting log data for server : %v in runAsLeader err : %v", r.id, err)
-	}
+	r.persistLogs()
 
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
@@ -583,6 +542,7 @@ func (r *Raft) runAsLeader() {
 	}
 
 }
+
 func (r *Raft) runAsCandidate() {
 	r.currentTerm++
 
@@ -597,12 +557,8 @@ func (r *Raft) runAsCandidate() {
 	currentVotes := 1
 	r.votedFor = r.id
 
-	// persist votedFor and term
-	p := Persistence{vote: Vote{CurrentTerm: r.currentTerm, VotedFor: r.votedFor}}
-	err := p.WriteVote(r.voteFileName)
-	if err != nil {
-		r.Debug("Error while persisting vote data for server : %v in runAsCandidate err : %v", r.id, err)
-	}
+
+	r.persistVotes()
 
 	for r.role == CANDIDATE {
 		select {
@@ -633,6 +589,21 @@ func (r *Raft) runAsCandidate() {
 	}
 
 }
+
+func (r *Raft) persistVotes() {
+	r.p.StoredVote.Term = r.currentTerm
+	r.p.StoredVote.VotedFor = r.votedFor
+	r.p.WriteVote(r.voteFileName)
+	r.Debug("Persisted Votes")
+}
+
+func (r *Raft) persistLogs() {
+	r.p.StoredLogs.Logs = r.log
+	r.p.WriteLog(r.logFileName)
+	r.Debug("Persisted Logs")
+}
+
+
 
 func (r *Raft) runAsFollower() {
 	r.Debug("Running a follower.")
@@ -701,4 +672,12 @@ func getRandomTimeout(minTimeout, maxTimeout int) time.Duration {
 	return time.Duration((minTimeout +
 		rand.Intn(1+maxTimeout-minTimeout)) * int(time.Millisecond),
 	)
+}
+
+func getVoteFileName(id PeerId) string {
+	return VOTE_FILE_TEMPLATE + strconv.Itoa(int(id))
+}
+
+func getLogFileName(id PeerId) string {
+	return LOG_FILE_TEMPLATE + strconv.Itoa(int(id))
 }

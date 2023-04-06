@@ -76,3 +76,12 @@ message LogEntry {
 	int32 index = 2;
 	Operation operation = 3;
 }
+
+message StoredVote {
+	int32 term = 1;
+	int32 votedFor = 2;
+}
+
+message StoredLog {
+	repeated LogEntry logs = 1;
+}
