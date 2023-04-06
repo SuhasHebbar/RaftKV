@@ -94,25 +94,21 @@ func handleGet(keystr string, ctx context.Context) {
 		break
 	}
 	if err != nil || (response != nil && !response.IsLeader) {
-		slog.Debug("err", err)
+		slog.Debug("err %v", err)
 		return
 
 	}
-	slog.Debug("Okay we're past this")
 
-	if err != nil {
-		if err.Error() == NON_EXISTENT_KEY_MSG {
+	if response.Ok {
+		fmt.Println(response.Response)
+	} else {
+		if response.Response == NON_EXISTENT_KEY_MSG {
 			fmt.Println("<Value does not exist>")
 		} else {
 			fmt.Println(err)
 		}
-	} else if response.Ok == true {
-		fmt.Println(response.Response)
-	} else {
-		fmt.Println("Someting went wrong!")
 
 	}
-
 }
 
 func handleSet(arguments string, ctx context.Context) {
@@ -143,7 +139,7 @@ func handleSet(arguments string, ctx context.Context) {
 	}
 
 	if err != nil || (response != nil && !response.IsLeader) {
-		slog.Debug("err", err)
+		slog.Debug("err %v", err)
 		return
 	}
 
@@ -161,6 +157,7 @@ func handleDelete(arguments string, ctx context.Context) {
 		clientId := (leaderId + i) % len(config.Peers)
 		fmt.Println("Trying leaderId", clientId)
 		response, err = clients[int32(leaderId)].Delete(ctx, &key)
+		Debugf("response %v, err %v", response, err)
 
 		if response == nil {
 			continue
@@ -180,7 +177,7 @@ func handleDelete(arguments string, ctx context.Context) {
 
 	if response.Ok == true {
 		fmt.Printf("Deleted %v\n", arguments)
-	} else if err.Error() == NON_EXISTENT_KEY_MSG {
+	} else if response.Response == NON_EXISTENT_KEY_MSG {
 		fmt.Println("<Value does not exist>")
 	} else {
 		fmt.Println("Someting went wrong!")
