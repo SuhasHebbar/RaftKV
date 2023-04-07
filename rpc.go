@@ -2,9 +2,7 @@ package kv
 
 import (
 	"context"
-	"encoding/gob"
 	"errors"
-	"reflect"
 	"sync"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
@@ -24,7 +22,7 @@ type RaftRpcServer struct {
 	raft       *Raft
 	clients    map[PeerId]pb.RaftRpcClient
 	kv         *KVStore
-	pendingOps map[int32]chan any
+	pendingOps map[int32]chan *KVResult
 	mu         sync.Mutex
 	pb.UnimplementedRaftRpcServer
 	config *Config
@@ -32,18 +30,6 @@ type RaftRpcServer struct {
 
 type RpcServer interface {
 	GetClient(peerId PeerId) pb.RaftRpcClient
-}
-
-const (
-	GET    = "GET"
-	SET    = "SET"
-	DELETE = "DELETE"
-)
-
-type Operation struct {
-	Name  string
-	Key   string
-	Value string
 }
 
 type PendingOperation struct {
@@ -80,11 +66,8 @@ func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 	self.raft = NewRaft(id, peers, self)
 	self.clients = clients
 	self.kv = NewKVStore()
-	self.pendingOps = map[int32]chan any{}
+	self.pendingOps = map[int32]chan *KVResult{}
 	self.config = config
-
-	gob.Register(Empty{})
-	gob.Register(Operation{})
 
 	go func() {
 		self.raft.startServerLoop()
@@ -94,37 +77,33 @@ func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 	return self
 }
 
+type KVResult struct {
+	Value string
+	Err error
+}
+
 func (rs *RaftRpcServer) startCommitListerLoop() {
 	for {
 		op := <-rs.raft.commitCh
 		Debugf("Received operation for index %v", op.Index)
-		kvop, ok := op.Operation.(Operation)
-		if !ok {
-			Debugf("Committed operation of wrong type. Actual type is %v", reflect.TypeOf(op.Operation))
-			panic("Trouble!")
-		}
+		kvop := op.Operation
 
-		var result any
-		if kvop.Name == GET {
+		result := &KVResult{}
+		if kvop.Type == pb.OperationType_GET {
 			value, err := rs.kv.Get(kvop.Key)
-			if err != nil {
-				result = err
-			} else {
-				result = value
-			}
-		} else if kvop.Name == SET {
+			result.Value = value
+			result.Err = err
+		} else if kvop.Type == pb.OperationType_SET {
 			rs.kv.Set(kvop.Key, kvop.Value)
-			result = nil
-
 		} else {
 			err := rs.kv.Delete(kvop.Key)
-			result = err
+			result.Err = err
 		}
 
 		rs.mu.Lock()
 		// rs.raft.Debug("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA Operation is now saved!")
 		if rs.pendingOps[op.Index] == nil {
-			rs.pendingOps[op.Index] = make(chan any, 1)
+			rs.pendingOps[op.Index] = make(chan *KVResult, 1)
 		}
 		rs.pendingOps[op.Index] <- result
 
@@ -206,14 +185,18 @@ func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand)
 }
 
 func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	resp := &pb.Response{}
+
 	if rs.config.Partitioned {
 		<-ctx.Done()
-		return nil, errors.New(SIMULATED_PARTITION)
+		resp.Ok = false
+		resp.Response = SIMULATED_PARTITION
 
+		return resp, nil
 	}
 
-	op := Operation{
-		Name: GET,
+	op := &pb.Operation{
+		Type:  pb.OperationType_GET,
 		Key:  key.Key,
 	}
 
@@ -223,39 +206,42 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 	}
 
 	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
+	resp.IsLeader = pendingOp.isLeader
+	resp.NewLeader = pendingOp.currentLeader
+
 	if err != nil {
-		return nil, err
+		resp.Ok = false
+		resp.Response = err.Error()
+		return resp, nil
 	}
 
 	res := rs.waitForResult(pendingOp.logIndex, ctx)
 
-	resp := &pb.Response{}
-	resp.IsLeader = pendingOp.isLeader
-	resp.NewLeader = pendingOp.currentLeader
+	if res.Err != nil {
 
-	switch v := res.(type) {
-	case error:
 		resp.Ok = false
-		resp.Response = v.Error()
+		resp.Response = res.Err.Error()
 		return resp, nil
-	case string:
+	} else {
 		resp.Ok = true
-		resp.Response = v
+		resp.Response = res.Value
 		return resp, nil
 	}
-
-	rs.raft.Debug("Unreachable area reached")
-	panic(res)
 }
+
 func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Response, error) {
+	resp := &pb.Response{}
+
 	if rs.config.Partitioned {
 		<-ctx.Done()
-		return nil, errors.New(SIMULATED_PARTITION)
+		resp.Ok = false
+		resp.Response = SIMULATED_PARTITION
 
+		return resp, nil
 	}
 
-	op := Operation{
-		Name:  SET,
+	op := &pb.Operation{
+		Type:  pb.OperationType_SET,
 		Key:   kvp.Key,
 		Value: kvp.Value,
 	}
@@ -266,14 +252,13 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 	}
 
 	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
-
-	resp := &pb.Response{}
 	resp.IsLeader = pendingOp.isLeader
 	resp.NewLeader = pendingOp.currentLeader
 
 	if err != nil {
 		resp.Ok = false
-		return nil, err
+		resp.Response = err.Error()
+		return resp, nil
 	}
 
 	rs.waitForResult(pendingOp.logIndex, ctx)
@@ -281,14 +266,17 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 	return resp, nil
 }
 func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	resp := &pb.Response{}
 	if rs.config.Partitioned {
 		<-ctx.Done()
-		return nil, errors.New(SIMULATED_PARTITION)
+		resp.Ok = false
+		resp.Response = SIMULATED_PARTITION
 
+		return resp, nil
 	}
 
-	op := Operation{
-		Name: DELETE,
+	op := &pb.Operation{
+		Type: pb.OperationType_DELETE,
 		Key:  key.Key,
 	}
 
@@ -299,38 +287,38 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 
 	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
 
-	resp := &pb.Response{}
-	resp.Ok = false
 	resp.IsLeader = pendingOp.isLeader
 	resp.NewLeader = pendingOp.currentLeader
 
 	if err != nil {
-		return resp, err
+		resp.Ok = false
+		resp.Response = err.Error()
+		return resp, nil
 	}
 
 	res := rs.waitForResult(pendingOp.logIndex, ctx)
-	if res == nil {
-		resp.Ok = true
+	if res.Err != nil {
+		resp.Ok = false
+		resp.Response = res.Err.Error()
 	} else {
-		res, ok := res.(error)
-		if ok {
-			resp.Response = res.Error()
-		}
+		resp.Ok = true
+		resp.Response = res.Value
 	}
+
 	return resp, nil
 }
 
-func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) any {
+func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResult {
 	rs.mu.Lock()
 	if rs.pendingOps[index] == nil {
-		rs.pendingOps[index] = make(chan any, 1)
+		rs.pendingOps[index] = make(chan *KVResult, 1)
 	}
 	pendingOpsCh := rs.pendingOps[index]
 	rs.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
-		return errors.New("Deadline exceeded")
+		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
 		return result
 	}

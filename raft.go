@@ -1,9 +1,7 @@
 package kv
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -12,13 +10,16 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 5
+const Amp = 50
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
 const MAX_ELECTION_TIMEOUT = 300 * Amp
 
 const RPC_TIMEOUT = 10 * time.Second * Amp
+
+const VOTE_FILE_TEMPLATE = "raftvotes"
+const LOG_FILE_TEMPLATE = "raftlogs"
 
 const (
 	FOLLOWER  = "FOLLOWER"
@@ -48,7 +49,7 @@ type Raft struct {
 	// Persistent state on all servers
 	currentTerm int32
 	votedFor    PeerId
-	log         []LogEntry
+	log         []*pb.LogEntry
 
 	leaderId   PeerId
 	rpcCh      chan RpcCommand
@@ -58,11 +59,10 @@ type Raft struct {
 	// volatile follower states.
 	heartBeatTimeout time.Duration
 	heartBeatTimer   *time.Timer
-}
 
-type LogEntry struct {
-	Term      int32
-	Operation any
+	p *Persistence
+	voteFileName string
+	logFileName string
 }
 
 func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
@@ -73,6 +73,21 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		nextIndex[peer] = 0
 		matchIndex[peer] = -1
 	}
+
+	voteFileName := getVoteFileName(addr)
+	logFileName := getLogFileName(addr)
+
+	p := &Persistence{}
+
+	vote, err1 := p.ReadVote(voteFileName)
+	logs, _ := p.ReadLog(logFileName)
+
+	if err1 != nil {
+		vote = &pb.StoredVote{Term: 0, VotedFor: -1}
+	}
+
+	p.StoredVote = vote
+	p.StoredLogs = logs
 
 	return &Raft{
 		id:    addr,
@@ -85,9 +100,9 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		nextIndex:  nextIndex,
 		matchIndex: matchIndex,
 
-		currentTerm: 0,
-		votedFor:    NIL_PEER,
-		log:         []LogEntry{},
+		currentTerm: vote.Term,
+		votedFor:    vote.VotedFor,
+		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
 		rpcCh:      make(chan RpcCommand),
@@ -96,6 +111,10 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 		heartBeatTimeout: -1,
 		heartBeatTimer:   nil,
+
+		p: p,
+		voteFileName: voteFileName,
+		logFileName: logFileName,
 	}
 }
 
@@ -153,7 +172,8 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 			rpcClient := r.rpcHandler.GetClient(peerId)
 			r.Debug("Sending vote for term %v to peer %v", savedCurrentTerm, peerId)
 
-			ctx, _ := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			defer cancel()
 			voteRes, err := rpcClient.RequestVote(ctx, voteReq)
 
 			if err != nil {
@@ -192,11 +212,8 @@ type RpcCommand struct {
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
 	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
-	entriesReader := bytes.NewReader(appendReq.Entries)
-	entries := []LogEntry{}
-	dec := gob.NewDecoder(entriesReader)
+	entries := appendReq.Entries
 
-	dec.Decode(&entries)
 
 	if appendReq.Term > r.currentTerm {
 		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
@@ -243,6 +260,8 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		if entriesOffset < len(entries) {
 			r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
+			// persist log entries
+			r.persistLogs()
 		}
 
 		// r.Debug("leadercommit: %v, localcommitindex: %v", appendReq.LeaderCommit, r.commitIndex)
@@ -278,6 +297,8 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) && ((voteReq.LastLogTerm > lastLogTerm) || (voteReq.LastLogTerm == lastLogTerm && voteReq.LastLogIndex >= lastLogIndex)) {
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
+		// persist votedFor and term
+		r.persistVotes()
 		r.resetHeartBeatTimer()
 		r.Debug("Successful vote to %v", r.votedFor)
 	}
@@ -292,7 +313,13 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 	if r.role != LEADER {
 		pendingOperation.isLeader = false
 	} else {
-		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation: req.Command})
+		op, ok := req.Command.(*pb.Operation)
+		if !ok {
+			panic("Received no Operation type")
+		}
+		r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
+		r.persistLogs()
+
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -338,28 +365,23 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 			prevLogTerm = r.log[prevLogIndex].Term
 		}
 
-		var buf bytes.Buffer
-		enc := gob.NewEncoder(&buf)
 		entries := r.log[r.nextIndex[peerId]:]
 		numEntries := len(entries)
-		if err := enc.Encode(entries); err != nil {
-			r.Debug("Failed to encode. exiting")
-			panic(err)
-		}
 
 		appendReq := &pb.AppendEntriesRequest{
 			Term:         savedCurrentTerm,
 			LeaderId:     r.id,
 			PrevLogIndex: prevLogIndex,
 			PrevLogTerm:  prevLogTerm,
-			Entries:      buf.Bytes(),
+			Entries:      entries,
 			LeaderCommit: r.commitIndex,
 		}
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
 
-			ctx, _ := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
+			defer cancel()
 
 			r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
@@ -395,6 +417,8 @@ func (r *Raft) becomeFollower(term int32, leader PeerId) {
 	r.currentTerm = term
 	r.votedFor = -1
 	r.leaderId = NIL_PEER
+	// persist votedFor and term
+	r.persistVotes()
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
@@ -455,7 +479,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 }
 
 type CommittedOperation struct {
-	Operation any
+	Operation *pb.Operation
 	Index     int32
 }
 
@@ -464,9 +488,8 @@ func (r *Raft) applyRange(a, b int32) {
 		// r.Debug("Applying operation for log %v", j)
 		operation := r.log[j].Operation
 
-		_, ok := operation.(Empty)
 		// Empty operations do not need to be applied to the state machine
-		if ok {
+		if operation.Type == pb.OperationType_NOOP {
 			continue
 		}
 		r.commitCh <- CommittedOperation{Operation: operation, Index: j}
@@ -492,13 +515,16 @@ func (r *Raft) runAsLeader() {
 	}
 	defer close(appendCh.closeCh)
 
-	dummyEntry := LogEntry{
+	dummyEntry := &pb.LogEntry{
 		Term:      r.currentTerm,
-		Operation: Empty{},
+		Operation: &pb.Operation{Type: pb.OperationType_NOOP},
 	}
 
 	// Add dummy entry to ensure previous term entries are commited on followers.
 	r.log = append(r.log, dummyEntry)
+	// persist log entries
+	r.persistLogs()
+
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
 
@@ -516,6 +542,7 @@ func (r *Raft) runAsLeader() {
 	}
 
 }
+
 func (r *Raft) runAsCandidate() {
 	r.currentTerm++
 
@@ -528,6 +555,10 @@ func (r *Raft) runAsCandidate() {
 	targetVotes := r.minimumVotes()
 	// Vote for self
 	currentVotes := 1
+	r.votedFor = r.id
+
+
+	r.persistVotes()
 
 	for r.role == CANDIDATE {
 		select {
@@ -558,6 +589,21 @@ func (r *Raft) runAsCandidate() {
 	}
 
 }
+
+func (r *Raft) persistVotes() {
+	r.p.StoredVote.Term = r.currentTerm
+	r.p.StoredVote.VotedFor = r.votedFor
+	r.p.WriteVote(r.voteFileName)
+	r.Debug("Persisted Votes")
+}
+
+func (r *Raft) persistLogs() {
+	r.p.StoredLogs.Logs = r.log
+	r.p.WriteLog(r.logFileName)
+	r.Debug("Persisted Logs")
+}
+
+
 
 func (r *Raft) runAsFollower() {
 	r.Debug("Running a follower.")
@@ -627,4 +673,12 @@ func getRandomTimeout(minTimeout, maxTimeout int) time.Duration {
 	return time.Duration((minTimeout +
 		rand.Intn(1+maxTimeout-minTimeout)) * int(time.Millisecond),
 	)
+}
+
+func getVoteFileName(id PeerId) string {
+	return VOTE_FILE_TEMPLATE + strconv.Itoa(int(id))
+}
+
+func getLogFileName(id PeerId) string {
+	return LOG_FILE_TEMPLATE + strconv.Itoa(int(id))
 }
