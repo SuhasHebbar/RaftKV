@@ -2,6 +2,7 @@ package kv
 
 import (
 	"fmt"
+	"time"
 
 	"golang.org/x/exp/slog"
 )
@@ -29,4 +30,11 @@ func Infof(format string, args ...any) {
 
 func Debugf(format string, args ...any) {
     slog.Default().Debug(fmt.Sprintf(format, args...))
+}
+
+func ResetTimer(timer *time.Timer, timeout time.Duration) {
+	if !timer.Stop() {
+		<-timer.C
+	}
+	timer.Reset(timeout)
 }

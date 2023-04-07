@@ -57,12 +57,15 @@ type Raft struct {
 	rpcHandler RpcServer
 
 	// volatile follower states.
-	heartBeatTimeout time.Duration
-	heartBeatTimer   *time.Timer
+	electionTimeout    time.Duration
+	electionTimer      *time.Timer
+	electionTimerStart time.Time
 
-	p *Persistence
+	p            *Persistence
 	voteFileName string
-	logFileName string
+	logFileName  string
+
+	lastSuccessfulHeartbeat time.Time
 }
 
 func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
@@ -109,12 +112,12 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		commitCh:   make(chan CommittedOperation),
 		rpcHandler: rpcHandler,
 
-		heartBeatTimeout: -1,
-		heartBeatTimer:   nil,
+		electionTimeout: -1,
+		electionTimer:   nil,
 
-		p: p,
+		p:            p,
 		voteFileName: voteFileName,
-		logFileName: logFileName,
+		logFileName:  logFileName,
 	}
 }
 
@@ -192,16 +195,17 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 }
 
 // Reset heartbeat timer to hearbeat timeout
-func (r *Raft) resetHeartBeatTimer() {
-	if r.heartBeatTimer == nil {
+func (r *Raft) resetElectionTimer() {
+	if r.electionTimer == nil {
 		return
 	}
 
-	if !r.heartBeatTimer.Stop() {
-		<-r.heartBeatTimer.C
+	if !r.electionTimer.Stop() {
+		<-r.electionTimer.C
 	}
+	r.electionTimer.Reset(r.electionTimeout)
 
-	r.heartBeatTimer.Reset(r.heartBeatTimeout)
+	r.electionTimerStart = time.Now()
 }
 
 type RpcCommand struct {
@@ -213,7 +217,6 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entries := appendReq.Entries
-
 
 	if appendReq.Term > r.currentTerm {
 		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
@@ -232,7 +235,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
 	}
 
-	r.resetHeartBeatTimer()
+	r.resetElectionTimer()
 	// r.Debug("Entry size being pushed is %v", len(entries))
 
 	// if len(entries) > 0 {
@@ -281,6 +284,18 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteRequest) {
 	r.Debug("Received RequestVote term: %v, candidateId: %v, lastLogIndex: %v, lastLogTerm: %v", voteReq.Term, voteReq.CandidateId, voteReq.LastLogIndex, voteReq.LastLogTerm)
 
+	voteRes := &pb.RequestVoteReply{
+		Term:        r.currentTerm,
+		VoteGranted: false,
+		PeerId:      r.id,
+	}
+
+	if r.role == FOLLOWER && time.Now().Sub(r.electionTimerStart) < time.Duration(MIN_ELECTION_TIMEOUT*time.Millisecond) {
+		r.Debug("Reject request vote since leader read lease may still be held")
+		req.resp <- voteRes
+		return
+	}
+
 	if voteReq.Term > r.currentTerm {
 		r.Debug("Becoming follower. term out of date")
 		r.becomeFollower(voteReq.Term, voteReq.CandidateId)
@@ -288,18 +303,18 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 
 	lastLogIndex, lastLogTerm := r.lastLogDetails()
 
-	voteRes := &pb.RequestVoteReply{
-		Term:        r.currentTerm,
-		VoteGranted: false,
-		PeerId:      r.id,
-	}
-
 	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) && ((voteReq.LastLogTerm > lastLogTerm) || (voteReq.LastLogTerm == lastLogTerm && voteReq.LastLogIndex >= lastLogIndex)) {
+
+		if r.role != FOLLOWER {
+			panic("Granting votes when not a follower.")
+		}
+
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
 		// persist votedFor and term
 		r.persistVotes()
-		r.resetHeartBeatTimer()
+
+		r.resetElectionTimer()
 		r.Debug("Successful vote to %v", r.votedFor)
 	}
 
@@ -340,9 +355,10 @@ func (r *Raft) handleRpc(req RpcCommand) {
 }
 
 type appendEntriesData struct {
-	request    *pb.AppendEntriesRequest
-	response   *pb.AppendEntriesResponse
-	numEntries int32
+	request              *pb.AppendEntriesRequest
+	response             *pb.AppendEntriesResponse
+	numEntries           int32
+	heartbeatContactTime time.Time
 }
 
 type safeN1Channel struct {
@@ -350,8 +366,9 @@ type safeN1Channel struct {
 	closeCh chan Empty
 }
 
-func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
+func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 	savedCurrentTerm := r.currentTerm
+	heartbeatStartTime := time.Now()
 
 	for peer := range r.peers {
 		peerId := peer
@@ -394,13 +411,17 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 			r.Debug("Received AppendEntries response.")
 
 			select {
-			case appendCh.C <- &appendEntriesData{request: appendReq, response: resp, numEntries: int32(numEntries)}:
+			case appendCh.C <- &appendEntriesData{request: appendReq, response: resp, numEntries: int32(numEntries),
+				heartbeatContactTime: heartbeatStartTime,
+			}:
 			case <-appendCh.closeCh:
 			}
 
 		}()
 
 	}
+
+	return heartbeatStartTime
 }
 
 func (r *Raft) setRole(newRole string) {
@@ -498,15 +519,37 @@ func (r *Raft) applyRange(a, b int32) {
 
 }
 
+// func (r *Raft) checkLeaseExpiry() {
+// 	// We can always contact self so init as 1.
+// 	successfulHeartbeats := 1
+//
+// 	now := time.Now()
+// 	leaderLease := getLeaderLease()
+//
+// 	for peerId := range r.peers {
+// 		if peerId == r.id  {
+// 			continue
+// 		}
+//
+// 		timeDiff := now.Sub(r.lastHeartbeat[peerId])
+//
+// 		if timeDiff <= leaderLease {
+// 			successfulHeartbeats++
+// 		}
+//
+// 	}
+// }
+
 func (r *Raft) runAsLeader() {
 	r.Debug("Running as leader for term %v.", r.currentTerm)
 
-	nextIndex := map[PeerId]int32{}
-	matchIndex := map[PeerId]int32{}
+	r.nextIndex = map[PeerId]int32{}
+	r.matchIndex = map[PeerId]int32{}
+	r.lastSuccessfulHeartbeat = time.Time{}
 
 	for peer := range r.peers {
-		nextIndex[peer] = int32(len(r.log))
-		matchIndex[peer] = -1
+		r.nextIndex[peer] = int32(len(r.log))
+		r.matchIndex[peer] = -1
 	}
 
 	appendCh := safeN1Channel{
@@ -528,16 +571,63 @@ func (r *Raft) runAsLeader() {
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
 
-	heartbeatTimer := time.After(getLeaderLease())
+	leaderHeartbeatTimer := time.After(getLeaderHeartbeatTimeout())
+
+	leaseTimerDuration := getLeaderLeaseTimeout()
+	leaderLeaseTimer := time.After(leaseTimerDuration)
+
+	leaderContactTimes := map[PeerId]time.Time{}
+
 	for r.role == LEADER {
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
-		case <-heartbeatTimer:
+		case <-leaderHeartbeatTimer:
+			leaderHeartbeatTimer = time.After(getLeaderHeartbeatTimeout())
 			r.broadcastAppendEntries(appendCh)
-			heartbeatTimer = time.After(getLeaderLease())
 		case appendRes := <-appendCh.C:
 			r.handleAppendEntriesResponse(appendRes)
+			peerId := appendRes.response.PeerId
+			if leaderContactTimes[peerId].Before(appendRes.heartbeatContactTime) {
+				leaderContactTimes[peerId] = appendRes.heartbeatContactTime
+			} else {
+				r.Debug("append response out of order hc: %v, lc: %v DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDd", appendRes.heartbeatContactTime, leaderContactTimes[peerId])
+			}
+		case <-leaderLeaseTimer:
+			contacted := 0
+			oldestContactDiff := time.Duration(0)
+			for peerId := range r.peers {
+				if peerId == r.id {
+					contacted++
+				}
+
+				now := time.Now()
+
+				contactDiff := now.Sub(leaderContactTimes[peerId])
+				if contactDiff < leaseTimerDuration {
+					contacted++
+					if contactDiff > oldestContactDiff {
+						oldestContactDiff = contactDiff
+					}
+				}
+			}
+
+			if contacted < r.minimumVotes() {
+				r.Debug("Leader Lease expired contacted: %v.", contacted)
+				r.becomeFollower(r.currentTerm, NIL_PEER)
+				break
+			}
+
+			nextLeaseTickDuration := leaseTimerDuration - oldestContactDiff
+
+			// Floor for lease duration
+			if nextLeaseTickDuration < 10 * time.Millisecond {
+				nextLeaseTickDuration = 10 * time.Millisecond
+			}
+
+			r.Debug("Next Lease Duration: %v", nextLeaseTickDuration)
+
+			leaderLeaseTimer = time.After(nextLeaseTickDuration)
 		}
 	}
 
@@ -546,9 +636,10 @@ func (r *Raft) runAsLeader() {
 func (r *Raft) runAsCandidate() {
 	r.currentTerm++
 
-	electionTimout := getElectionTimeout()
-	electionTimer := time.NewTimer(electionTimout)
-	defer electionTimer.Stop()
+	r.electionTimeout = getElectionTimeout()
+	r.electionTimer = time.NewTimer(r.electionTimeout)
+	r.electionTimerStart = time.Now()
+	defer r.electionTimer.Stop()
 
 	votesCh := r.broadcastVoteRequest()
 
@@ -557,14 +648,13 @@ func (r *Raft) runAsCandidate() {
 	currentVotes := 1
 	r.votedFor = r.id
 
-
 	r.persistVotes()
 
 	for r.role == CANDIDATE {
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
-		case <-electionTimer.C:
+		case <-r.electionTimer.C:
 			// We restart the election
 			return
 		case vote := <-votesCh:
@@ -603,17 +693,16 @@ func (r *Raft) persistLogs() {
 	r.Debug("Persisted Logs")
 }
 
-
-
 func (r *Raft) runAsFollower() {
 	r.Debug("Running a follower.")
 
-	r.heartBeatTimeout = getHeartbeatTimeout()
-	r.heartBeatTimer = time.NewTimer(r.heartBeatTimeout)
+	r.electionTimeout = getElectionTimeout()
+	r.electionTimer = time.NewTimer(r.electionTimeout)
+	r.electionTimerStart = time.Now()
 	defer func() {
-		r.heartBeatTimer.Stop()
-		r.heartBeatTimer = nil
-		r.heartBeatTimeout = -1
+		r.electionTimer.Stop()
+		r.electionTimer = nil
+		r.electionTimeout = -1
 	}()
 
 	for {
@@ -621,7 +710,7 @@ func (r *Raft) runAsFollower() {
 		case req := <-r.rpcCh:
 			// do nothing for now.
 			r.handleRpc(req)
-		case <-r.heartBeatTimer.C:
+		case <-r.electionTimer.C:
 			r.setRole(CANDIDATE)
 			r.leaderId = NIL_PEER
 			return
@@ -656,15 +745,15 @@ func getRandomTimer() <-chan time.Time {
 	return time.After(randomTimeout)
 }
 
-func getLeaderLease() time.Duration {
+func getLeaderHeartbeatTimeout() time.Duration {
 	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
-func getElectionTimeout() time.Duration {
-	return getRandomTimeout(MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT)
+func getLeaderLeaseTimeout() time.Duration {
+	return time.Duration(MIN_ELECTION_TIMEOUT * 0.9 * time.Millisecond)
 }
 
-func getHeartbeatTimeout() time.Duration {
+func getElectionTimeout() time.Duration {
 	return getRandomTimeout(MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT)
 }
 
