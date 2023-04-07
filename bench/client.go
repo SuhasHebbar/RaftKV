@@ -5,6 +5,7 @@ import (
     "math/rand"
     "time"
     "fmt"
+    "sync"
 
     pb "github.com/SuhasHebbar/CS739-P2/proto"
     "golang.org/x/exp/slog"
@@ -30,6 +31,9 @@ type Client struct {
 
     // zap logger to log metrics
     zlog *zap.Logger
+
+    // mutex for leader id
+    leaderIdCh chan int
 }
 
 func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
@@ -41,6 +45,7 @@ func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
         leaderId: 0,
         prng: prng,
         zlog: zlog,
+        leaderIdCh: make(chan int),
     }
 }
 
@@ -51,10 +56,22 @@ func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
     ctx, cancel := context.WithTimeout(pctx, time.Duration(len(client.keys)) * time.Second)
     defer cancel()
 
+    var wg sync.WaitGroup
+
     for _, key := range client.keys {
         value := RandStringRunes(client.prng, valLen)
-        client.Set(key, value, ctx)
+
+        wg.Add(1)
+
+        // execute these in parallel
+        go func(key string, ctx context.Context) {
+            defer wg.Done()
+
+            client.Set(key, value, ctx)
+        }(key, ctx)
     }
+
+    wg.Wait()
 }
 
 func ConnectReplicas(replicas []string) []pb.RaftRpcClient {
@@ -87,200 +104,243 @@ func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
     return keys
 }
 
+func getTriggerTimeout() time.Duration {
+    return time.Millisecond
+}
+
 func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
     slog.Info("Starting the random workload with", "writeProp", writeProp, "valLen", valLen)
 
-    for {
-        // decide whether to read or write
-        if client.prng.Float32() <  writeProp {
-            // random write
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
-
-            // pick a random value to write
-            value := RandStringRunes(client.prng, valLen)
-
-            // kv operation
-            client.Set(key, value, ctx)
-
-            // compute latency
-            client.zlog.Info("SET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "SET"),
-            )
-        } else {
-            // random read
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
-
-            // kv operation
-            client.Get(key, ctx)
-
-            // compute latency
-            client.zlog.Info("GET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "GET"),
-            )
-        }
-    }
-}
-
-func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx context.Context) {
-    slog.Info("Starting the read recent workload with", "writeProp", writeProp, "valLen", valLen)
-
-    // Initalize recent key randomly
-    //   reset with last written key (same as last read key if previous op is not write)
-    recent_key := client.keys[client.prng.Intn(len(client.keys))]
+    triggerTimer := time.After(getTriggerTimeout())
 
     for {
-        // decide whether to read or write
-        if client.prng.Float32() <  writeProp {
-            // random write
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
+        select {
+        case <- triggerTimer:
+            // decide whether to read or write
+            if client.prng.Float32() <  writeProp {
+                // pick a random key
+                key := client.keys[client.prng.Intn(len(client.keys))]
 
-            // pick a random value to write
-            value := RandStringRunes(client.prng, valLen)
+                // pick a random value to write
+                value := RandStringRunes(client.prng, valLen)
 
-            // kv operation
-            // TODO: measure execution time
-            client.Set(key, value, ctx)
+                go func(key, value string, leaderId int, ctx context.Context) {
+                    // random write
+                    start := time.Now()
 
-            // reset recent_key to current key
-            recent_key = key
+                    // kv operation
+                    client.Set(key, value, leaderId, ctx)
 
-            // compute latency
-            client.zlog.Info("SET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "SET"),
-            )
-        } else {
-            // recent read
-            start := time.Now()
+                    // compute latency
+                    client.zlog.Info("SET",
+                        zap.Int64("latency", time.Since(start).Nanoseconds()),
+                        zap.Int64("timestamp", time.Now().Unix()),
+                        zap.String("operation", "SET"),
+                    )
+                }(key, value, client.leaderId, ctx)
+            } else {
+                // pick a random key
+                key := client.keys[client.prng.Intn(len(client.keys))]
 
-            client.Get(recent_key, ctx)
+                go func(key string, leaderId int, ctx context.Context) {
+                    // random read
+                    start := time.Now()
 
-            // compute latency
-            client.zlog.Info("GET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "GET"),
-            )
-        }
-    }
-}
+                    // kv operation
+                    client.Get(key, leaderId, ctx)
 
-func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int32, ctx context.Context) {
-    slog.Info("Starting the read modify update workload with", "writeProp", writeProp, "valLen", valLen)
-
-    for {
-        // decide whether to read or write
-        if client.prng.Float32() <  writeProp {
-            // read modify update
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
-
-            // read the value in key
-            client.Get(key, ctx)
-
-            // pick a random value to write
-            value := RandStringRunes(client.prng, valLen)
-
-            // update with new value
-            client.Set(key, value, ctx)
-
-            // compute latency
-            client.zlog.Info("SET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "SET"),
-            )
-        } else {
-            // random read
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
-
-            // kv operation
-            client.Get(key, ctx)
-
-            // compute latency
-            client.zlog.Info("GET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "GET"),
-            )
-        }
-    }
-}
-
-func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rangeScanNumKeys int32, ctx context.Context) {
-    slog.Info("Starting the read range workload with", "writeProp", writeProp, "valLen", valLen)
-
-    for {
-        // decide whether to read or write
-        if client.prng.Float32() <  writeProp {
-            // random write
-            start := time.Now()
-            
-            // pick a random key
-            key := client.keys[client.prng.Intn(len(client.keys))]
-
-            // pick a random value to write
-            value := RandStringRunes(client.prng, valLen)
-
-            // kv operation
-            client.Set(key, value, ctx)
-
-            // compute latency
-            client.zlog.Info("SET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "SET"),
-            )
-        } else {
-            // scan a contiguous range from a random index
-            start := time.Now()
-
-            id := client.prng.Intn(len(client.keys))
-            for i := 0; i < int(rangeScanNumKeys); i++ {
-                key := client.keys[(id+i)%len(client.keys)]
-
-                // kv operation
-                // TODO: measure execution time
-                client.Get(key, ctx)
+                    // compute latency
+                    client.zlog.Info("GET",
+                        zap.Int64("latency", time.Since(start).Nanoseconds()),
+                        zap.Int64("timestamp", time.Now().Unix()),
+                        zap.String("operation", "GET"),
+                    )
+                }(key, client.leaderId, ctx)
             }
 
-            // compute latency
-            client.zlog.Info("GET",
-                zap.Int64("latency", time.Since(start).Nanoseconds()),
-                zap.Int64("timestamp", time.Now().Unix()),
-                zap.String("operation", "GET"),
-            )
+            triggerTimer = time.After(getTriggerTimeout())
+        case leaderId := <- client.leaderIdCh:
+            client.leaderId = leaderId
         }
     }
 }
+//
+// func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx context.Context) {
+//     slog.Info("Starting the read recent workload with", "writeProp", writeProp, "valLen", valLen)
+//
+//     // Initalize recent key randomly
+//     //   reset with last written key (same as last read key if previous op is not write)
+//     recentKey := client.keys[client.prng.Intn(len(client.keys))]
+//
+//     // mutex for recent key
+//     recentKeyCh := make(chan string)
+//
+//     triggerTimer := time.After(getTriggerTimeout())
+//
+//     for {
+//         select {
+//         case <- triggerTimer:
+//             // decide whether to read or write
+//             if client.prng.Float32() <  writeProp {
+//                 // pick a random key
+//                 key := client.keys[client.prng.Intn(len(client.keys))]
+//
+//                 // pick a random value to write
+//                 value := RandStringRunes(client.prng, valLen)
+//                 
+//                 go func(key, value string, leaderId int, ctx context.Context) {
+//                     // random write
+//                     start := time.Now()
+//
+//                     // kv operation
+//                     // TODO: measure execution time
+//                     client.Set(key, value, leaderId, ctx)
+//
+//                     // compute latency
+//                     client.zlog.Info("SET",
+//                         zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                         zap.Int64("timestamp", time.Now().Unix()),
+//                         zap.String("operation", "SET"),
+//                     )
+//
+//                     // reset recent_key to current key
+//                     recentKeyCh <- key
+//                 }(key, value, client.leaderId, ctx)
+//             } else {
+//                 go func(key string, leaderId int, ctx context.Context) {
+//                     // recent read
+//                     start := time.Now()
+//
+//                     client.Get(key, leaderId, ctx)
+//
+//                     // compute latency
+//                     client.zlog.Info("GET",
+//                         zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                         zap.Int64("timestamp", time.Now().Unix()),
+//                         zap.String("operation", "GET"),
+//                     )
+//                 }(recentKey, client.leaderId, ctx)
+//             }
+//
+//             triggerTimer = time.After(getTriggerTimeout())
+//         case leaderId := <- client.leaderIdCh:
+//             client.leaderId = leaderId
+//         case key := <- recentKeyCh:
+//             recentKey = key
+//         }
+//     }
+// }
+//
+// func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int32, ctx context.Context) {
+//     slog.Info("Starting the read modify update workload with", "writeProp", writeProp, "valLen", valLen)
+//
+//     for {
+//         // decide whether to read or write
+//         if client.prng.Float32() <  writeProp {
+//             // pick a random key
+//             key := client.keys[client.prng.Intn(len(client.keys))]
+//
+//             // pick a random value to write
+//             value := RandStringRunes(client.prng, valLen)
+//             
+//             go func(key, value string, ctx context.Context) {
+//                 // read modify update
+//                 start := time.Now()
+//
+//                 // read the value in key
+//                 client.Get(key, ctx)
+//
+//                 // update with new value
+//                 client.Set(key, value, ctx)
+//
+//                 // compute latency
+//                 client.zlog.Info("SET",
+//                     zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                     zap.Int64("timestamp", time.Now().Unix()),
+//                     zap.String("operation", "SET"),
+//                 )
+//             }(key, value, ctx)
+//         } else {
+//             // pick a random key
+//             key := client.keys[client.prng.Intn(len(client.keys))]
+//             
+//             go func(key string, ctx context.Context) {
+//                 // random read
+//                 start := time.Now()
+//
+//                 // kv operation
+//                 client.Get(key, ctx)
+//
+//                 // compute latency
+//                 client.zlog.Info("GET",
+//                     zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                     zap.Int64("timestamp", time.Now().Unix()),
+//                     zap.String("operation", "GET"),
+//                 )
+//             }(key, ctx)
+//         }
+//     }
+// }
+//
+// func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rangeScanNumKeys int32, ctx context.Context) {
+//     slog.Info("Starting the read range workload with", "writeProp", writeProp, "valLen", valLen)
+//
+//     for {
+//         // decide whether to read or write
+//         if client.prng.Float32() <  writeProp {
+//             // pick a random key
+//             key := client.keys[client.prng.Intn(len(client.keys))]
+//
+//             // pick a random value to write
+//             value := RandStringRunes(client.prng, valLen)
+//
+//             go func(key, value string, ctx context.Context) {
+//                 // random write
+//                 start := time.Now()
+//                 
+//                 // kv operation
+//                 client.Set(key, value, ctx)
+//
+//                 // compute latency
+//                 client.zlog.Info("SET",
+//                     zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                     zap.Int64("timestamp", time.Now().Unix()),
+//                     zap.String("operation", "SET"),
+//                 )
+//             }(key, value, ctx)
+//         } else {
+//             id := client.prng.Intn(len(client.keys))
+//
+//             go func(id int, ctx context.Context) {
+//                 // scan a contiguous range from a random index
+//                 start := time.Now()
+//
+//                 for i := 0; i < int(rangeScanNumKeys); i++ {
+//                     key := client.keys[(id+i)%len(client.keys)]
+//
+//                     // kv operation
+//                     client.Get(key, ctx)
+//                 }
+//
+//                 // compute latency
+//                 client.zlog.Info("GET",
+//                     zap.Int64("latency", time.Since(start).Nanoseconds()),
+//                     zap.Int64("timestamp", time.Now().Unix()),
+//                     zap.String("operation", "GET"),
+//                 )
+//             }(id, ctx)
+//         }
+//     }
+// }
 
-func (client *Client) Get(keystr string, ctx context.Context) {
+func (client *Client) Get(keystr string, leaderId int, ctx context.Context) {
     key := pb.Key{Key: keystr}
 
     var response *pb.Response
     var err error
 
     for i := 0; i < len(client.replicas); i++ {
-        clientId := (client.leaderId + i) % len(client.replicas)
+        clientId := (leaderId + i) % len(client.replicas)
         // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Get(ctx, &key)
         // Debugf("response %v, err %v", response, err)
@@ -292,7 +352,7 @@ func (client *Client) Get(keystr string, ctx context.Context) {
             continue
         }
 
-        client.leaderId = clientId
+        client.leaderIdCh <- clientId
         break
     }
 
@@ -314,14 +374,14 @@ func (client *Client) Get(keystr string, ctx context.Context) {
     }
 }
 
-func (client *Client) Set(key  string, value string, ctx context.Context) {
+func (client *Client) Set(key  string, value string, leaderId int, ctx context.Context) {
     kvPair := pb.KeyValuePair{Key: key, Value: value}
 
     var response *pb.Response
     var err error
 
     for i := 0; i < len(client.replicas); i++ {
-        clientId := (client.leaderId + i) % len(client.replicas)
+        clientId := (leaderId + i) % len(client.replicas)
         // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Set(ctx, &kvPair)
         // Debugf("response %v, err %v", response, err)
@@ -333,7 +393,7 @@ func (client *Client) Set(key  string, value string, ctx context.Context) {
             continue
         }
 
-        client.leaderId = clientId
+        client.leaderIdCh <- clientId
         break
     }
 
@@ -342,14 +402,14 @@ func (client *Client) Set(key  string, value string, ctx context.Context) {
     }
 }
 
-func (client *Client) Delete(keystr string, ctx context.Context) {
+func (client *Client) Delete(keystr string, leaderId int, ctx context.Context) {
     key := pb.Key{Key: keystr}
 
     var response *pb.Response
     var err error
 
     for i := 0; i < len(client.replicas); i++ {
-        clientId := (client.leaderId + i) % len(client.replicas)
+        clientId := (leaderId + i) % len(client.replicas)
         // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Delete(ctx, &key)
         // Debugf("response %v, err %v", response, err)
@@ -361,7 +421,8 @@ func (client *Client) Delete(keystr string, ctx context.Context) {
             continue
         }
 
-        client.leaderId = clientId
+        // not protected by lock but this is a hint anyway
+        client.leaderIdCh <- leaderId
         break
     }
 

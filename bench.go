@@ -60,12 +60,12 @@ func BenchEntryPoint() {
     switch strings.ToLower(config.Mode) {
         case bench.RANDOM:
             client.RunRandomWorkload(config.WriteProp, config.ValLen, context.Background())
-        case bench.READ_RECENT:
-            client.RunReadRecentWorkload(config.WriteProp, config.ValLen, context.Background())
-        case bench.READ_MODIFY_UPDATE:
-            client.RunReadModifyUpdateWorkload(config.WriteProp, config.ValLen, context.Background())
-        case bench.READ_RANGE:
-            client.RunReadRangeWorkload(config.WriteProp, config.ValLen, config.RangeScanNumKeys, context.Background())
+        // case bench.READ_RECENT:
+        //     client.RunReadRecentWorkload(config.WriteProp, config.ValLen, context.Background())
+        // case bench.READ_MODIFY_UPDATE:
+        //     client.RunReadModifyUpdateWorkload(config.WriteProp, config.ValLen, context.Background())
+        // case bench.READ_RANGE:
+        //     client.RunReadRangeWorkload(config.WriteProp, config.ValLen, config.RangeScanNumKeys, context.Background())
         default:
             panic(fmt.Sprintln("Mode unrecognized", config.Mode))
     }
