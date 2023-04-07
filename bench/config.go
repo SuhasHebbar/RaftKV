@@ -1,13 +1,15 @@
 package bench
 
 import (
+    "fmt"
+
     "github.com/spf13/viper"
     "golang.org/x/exp/slog"
 )
 
 type Config struct {
     // IP address of all the replicas
-    Replicas map[int32]string `mapstructure:"replicas"`
+    Replicas []string `mapstructure:"replicas"`
 
     // Number of keys to generate
     NumKeys int32 `mapstructure:"num_keys"`
@@ -57,11 +59,12 @@ func GetConfig(confname string) *Config {
     // read config options from file
     if err := viper.ReadInConfig(); err != nil {
         slog.Error("Failed to read config", "err", err)
-        panic("Requires a config file!")
+        panic(err)
     }
 
     // Unmarshal config into our struct
     config := &Config{}
-    viper.Unmarshal(config)
+    viper.UnmarshalExact(config)
+    fmt.Println("num replicas ", config.Replicas)
     return config
 }

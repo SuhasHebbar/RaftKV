@@ -7,10 +7,10 @@ import (
     "fmt"
 
     pb "github.com/SuhasHebbar/CS739-P2/proto"
-    "golang.org/x/exp/maps"
     "golang.org/x/exp/slog"
     "google.golang.org/grpc"
     "google.golang.org/grpc/credentials/insecure"
+    "go.uber.org/zap"
 )
 
 const NON_EXISTENT_KEY_MSG = "key does not exist."
@@ -27,9 +27,12 @@ type Client struct {
 
     // Pseudo random number generator
     prng *rand.Rand
+
+    // zap logger to log metrics
+    zlog *zap.Logger
 }
 
-func NewClient(config *Config, prng *rand.Rand) *Client {
+func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
     return &Client{
         replicas: ConnectReplicas(config.Replicas),
         keys: GenerateKeys(prng, config.NumKeys, config.KeyLen),
@@ -49,10 +52,10 @@ func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
     }
 }
 
-func ConnectReplicas(replicas map[int32]string) []pb.RaftRpcClient {
+func ConnectReplicas(replicas []string) []pb.RaftRpcClient {
     // Connect to each replica
-    clients := map[int32]pb.RaftRpcClient{}
-    for k, url := range replicas {
+    clients := make([]pb.RaftRpcClient, len(replicas))
+    for i, url := range replicas {
         opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
         conn, err := grpc.Dial(url, opts...)
@@ -61,11 +64,10 @@ func ConnectReplicas(replicas map[int32]string) []pb.RaftRpcClient {
             panic(err)
         }
 
-        client := pb.NewRaftRpcClient(conn)
-        clients[k] = client
+        clients[i] = pb.NewRaftRpcClient(conn)
     }
 
-    return maps.Values(clients)
+    return clients
 }
 
 func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
@@ -81,6 +83,7 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
             // random write
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
@@ -89,17 +92,23 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
             value := RandStringRunes(client.prng, valLen)
 
             // kv operation
-            // TODO: measure execution time
             client.Set(key, value, ctx)
+
+            // compute latency
+            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            slog.Info("Hmm, so zlog isnt working?")
         } else {
             // random read
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
 
             // kv operation
-            // TODO: measure execution time
             client.Get(key, ctx)
+
+            // compute latency
+            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         }
     }
 }
@@ -113,6 +122,7 @@ func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
             // random write
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
@@ -126,10 +136,17 @@ func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx
 
             // reset recent_key to current key
             recent_key = key
+
+            // compute latency
+            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         } else {
             // recent read
-            // TODO: measure execution time
+            start := time.Now()
+
             client.Get(recent_key, ctx)
+
+            // compute latency
+            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         }
     }
 }
@@ -139,6 +156,7 @@ func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int3
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
             // read modify update
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
@@ -150,17 +168,22 @@ func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int3
             value := RandStringRunes(client.prng, valLen)
 
             // update with new value
-            // TODO: measure execution time
             client.Set(key, value, ctx)
+
+            // compute latency
+            client.zlog.Info("UPD", zap.Int64("latency", time.Since(start).Nanoseconds()))
         } else {
             // random read
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
 
             // kv operation
-            // TODO: measure execution time
             client.Get(key, ctx)
+
+            // compute latency
+            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         }
     }
 }
@@ -170,6 +193,7 @@ func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rang
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
             // random write
+            start := time.Now()
             
             // pick a random key
             key := client.keys[client.prng.Intn(len(client.keys))]
@@ -178,10 +202,14 @@ func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rang
             value := RandStringRunes(client.prng, valLen)
 
             // kv operation
-            // TODO: measure execution time
             client.Set(key, value, ctx)
+
+            // compute latency
+            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         } else {
             // scan a contiguous range from a random index
+            start := time.Now()
+
             id := client.prng.Intn(len(client.keys))
             for i := 0; i < int(rangeScanNumKeys); i++ {
                 key := client.keys[(id+i)%len(client.keys)]
@@ -190,6 +218,9 @@ func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rang
                 // TODO: measure execution time
                 client.Get(key, ctx)
             }
+
+            // compute latency
+            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
         }
     }
 }
@@ -202,9 +233,9 @@ func (client *Client) Get(keystr string, ctx context.Context) {
 
     for i := 0; i < len(client.replicas); i++ {
         clientId := (client.leaderId + i) % len(client.replicas)
-        fmt.Println("Trying leaderId", clientId)
+        // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Get(ctx, &key)
-        Debugf("response %v, err %v", response, err)
+        // Debugf("response %v, err %v", response, err)
 
         if response == nil {
             continue
@@ -243,9 +274,9 @@ func (client *Client) Set(key  string, value string, ctx context.Context) {
 
     for i := 0; i < len(client.replicas); i++ {
         clientId := (client.leaderId + i) % len(client.replicas)
-        fmt.Println("Trying leaderId", clientId)
+        // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Set(ctx, &kvPair)
-        Debugf("response %v, err %v", response, err)
+        // Debugf("response %v, err %v", response, err)
 
         if response == nil {
             continue
@@ -271,9 +302,9 @@ func (client *Client) Delete(keystr string, ctx context.Context) {
 
     for i := 0; i < len(client.replicas); i++ {
         clientId := (client.leaderId + i) % len(client.replicas)
-        fmt.Println("Trying leaderId", clientId)
+        // fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Delete(ctx, &key)
-        Debugf("response %v, err %v", response, err)
+        // Debugf("response %v, err %v", response, err)
 
         if response == nil {
             continue

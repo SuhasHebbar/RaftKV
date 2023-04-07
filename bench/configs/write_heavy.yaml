@@ -1,5 +1,7 @@
 # Random, 50% writes
 
+replicas: ["10.10.1.3:9305", "10.10.1.4:9304", "10.10.1.5:9303"]
+
 # Number of keys to generate
 num_keys: 1024
 
