@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
+	"golang.org/x/exp/slog"
 )
 
 const Amp = 50
@@ -598,9 +599,11 @@ func (r *Raft) persistVotes() {
 }
 
 func (r *Raft) persistLogs() {
+	startTime := time.Now()
 	r.p.StoredLogs.Logs = r.log
 	r.p.WriteLog(r.logFileName)
 	r.Debug("Persisted Logs")
+	r.Info("persist time::", "latency", time.Since(startTime))
 }
 
 
