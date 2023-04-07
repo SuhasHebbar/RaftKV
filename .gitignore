@@ -18,3 +18,4 @@
 scripts/out
 # SSH keys
 scripts/id_ed25519*
+.vscode/

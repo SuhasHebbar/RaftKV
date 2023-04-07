@@ -1,17 +1,16 @@
-package main
+package kv
 
 import (
 	"flag"
 	"net"
 	"os"
 
-	"github.com/SuhasHebbar/CS739-P2/config"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 )
 
-func main() {
+func ServerEntryPoint() {
 	opts := slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}
@@ -21,13 +20,13 @@ func main() {
 	slog.SetDefault(logger)
 
 	Debugf("this should print %d", 22)
-	idArg := flag.Int("id", 0, "The address the server listens on in the format addr:port. For example localhost: 8000")
+	idArg := flag.Int("id", 0, "The address the server listens on in the format addr:port.")
 
 	flag.Parse()
 
 	id := int32(*idArg)
 
-	config := config.GetConfig()
+	config := GetConfig()
 
 	lis, err := net.Listen("tcp", config.Peers[id])
 

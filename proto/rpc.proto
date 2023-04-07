@@ -2,6 +2,8 @@ syntax = "proto3";
 
 option go_package = "github.com/SuhasHebbar/CS739-P2/proto";
 /* import "google/protobuf/timestamp.proto"; */
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
 
 service RaftRpc {
 	rpc Get(Key) returns (Response) {}
@@ -9,6 +11,7 @@ service RaftRpc {
 	rpc Delete(Key) returns (Response) {}
 	rpc RequestVote(RequestVoteRequest) returns (RequestVoteReply) {}
 	rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}
+	rpc Partition(google.protobuf.BoolValue) returns (google.protobuf.Empty) {}
 }
 
 message AppendEntriesRequest {
@@ -46,10 +49,11 @@ message Key {
 message Response {
 	bool ok = 1;
 	string response = 2;
+	bool isLeader = 3;
+	int32 newLeader = 4;
 }
 
 message KeyValuePair {
 	string key = 1;
 	string value = 2;
 }
-

@@ -8,6 +8,8 @@ package proto
 
 import (
 	context "context"
+	empty "github.com/golang/protobuf/ptypes/empty"
+	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -27,6 +29,7 @@ type RaftRpcClient interface {
 	Delete(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
 	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteReply, error)
 	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
+	Partition(ctx context.Context, in *wrappers.BoolValue, opts ...grpc.CallOption) (*empty.Empty, error)
 }
 
 type raftRpcClient struct {
@@ -82,6 +85,15 @@ func (c *raftRpcClient) AppendEntries(ctx context.Context, in *AppendEntriesRequ
 	return out, nil
 }
 
+func (c *raftRpcClient) Partition(ctx context.Context, in *wrappers.BoolValue, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/RaftRpc/Partition", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftRpcServer is the server API for RaftRpc service.
 // All implementations must embed UnimplementedRaftRpcServer
 // for forward compatibility
@@ -91,6 +103,7 @@ type RaftRpcServer interface {
 	Delete(context.Context, *Key) (*Response, error)
 	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteReply, error)
 	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
+	Partition(context.Context, *wrappers.BoolValue) (*empty.Empty, error)
 	mustEmbedUnimplementedRaftRpcServer()
 }
 
@@ -112,6 +125,9 @@ func (UnimplementedRaftRpcServer) RequestVote(context.Context, *RequestVoteReque
 }
 func (UnimplementedRaftRpcServer) AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
+}
+func (UnimplementedRaftRpcServer) Partition(context.Context, *wrappers.BoolValue) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Partition not implemented")
 }
 func (UnimplementedRaftRpcServer) mustEmbedUnimplementedRaftRpcServer() {}
 
@@ -216,6 +232,24 @@ func _RaftRpc_AppendEntries_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftRpc_Partition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(wrappers.BoolValue)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftRpcServer).Partition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/RaftRpc/Partition",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftRpcServer).Partition(ctx, req.(*wrappers.BoolValue))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftRpc_ServiceDesc is the grpc.ServiceDesc for RaftRpc service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -242,6 +276,10 @@ var RaftRpc_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AppendEntries",
 			Handler:    _RaftRpc_AppendEntries_Handler,
+		},
+		{
+			MethodName: "Partition",
+			Handler:    _RaftRpc_Partition_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

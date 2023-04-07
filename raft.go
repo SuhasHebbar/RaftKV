@@ -1,4 +1,4 @@
-package main
+package kv
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 60
+const Amp = 5
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -115,9 +115,7 @@ func (r *Raft) Info(msg string, args ...any) {
 	Infof(strconv.Itoa(int(r.id))+": "+msg, args...)
 }
 
-func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
-	savedCurrentTerm := r.currentTerm
-	votesCh := make(chan *pb.RequestVoteReply, r.peersSize())
+func (r *Raft) lastLogDetails() (int32, int32) {
 
 	lastLogIndex := len(r.log) - 1
 
@@ -126,6 +124,15 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 		lastLogTerm = r.log[lastLogIndex].Term
 
 	}
+
+	return int32(lastLogIndex), lastLogTerm
+}
+
+func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
+	savedCurrentTerm := r.currentTerm
+	votesCh := make(chan *pb.RequestVoteReply, r.peersSize())
+
+	lastLogIndex, lastLogTerm := r.lastLogDetails()
 
 	voteReq := &pb.RequestVoteRequest{
 		Term:         r.currentTerm,
@@ -192,7 +199,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	dec.Decode(&entries)
 
 	if appendReq.Term > r.currentTerm {
-		r.becomeFollower(appendReq.Term)
+		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
 	}
 
 	appendRes := &pb.AppendEntriesResponse{}
@@ -205,11 +212,11 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	}
 
 	if r.role != FOLLOWER {
-		r.becomeFollower(appendReq.Term)
+		r.becomeFollower(appendReq.Term, appendReq.LeaderId)
 	}
 
 	r.resetHeartBeatTimer()
- 	// r.Debug("Entry size being pushed is %v", len(entries))
+	// r.Debug("Entry size being pushed is %v", len(entries))
 
 	// if len(entries) > 0 {
 	// 	r.Debug("Non zero log entry to be pushed!")
@@ -243,7 +250,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 			oldCommitIndex := r.commitIndex
 			r.commitIndex = min32(appendReq.LeaderCommit, int32(len(r.log)-1))
 			r.Debug("Commit index changing from %v to %v", oldCommitIndex, r.commitIndex)
-			r.applyRange(oldCommitIndex + 1, r.commitIndex)
+			r.applyRange(oldCommitIndex+1, r.commitIndex)
 		}
 
 	}
@@ -257,8 +264,10 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 
 	if voteReq.Term > r.currentTerm {
 		r.Debug("Becoming follower. term out of date")
-		r.becomeFollower(voteReq.Term)
+		r.becomeFollower(voteReq.Term, voteReq.CandidateId)
 	}
+
+	lastLogIndex, lastLogTerm := r.lastLogDetails()
 
 	voteRes := &pb.RequestVoteReply{
 		Term:        r.currentTerm,
@@ -266,7 +275,7 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		PeerId:      r.id,
 	}
 
-	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) {
+	if voteReq.Term == r.currentTerm && (r.votedFor == -1 || r.votedFor == voteReq.CandidateId) && ((voteReq.LastLogTerm > lastLogTerm) || (voteReq.LastLogTerm == lastLogTerm && voteReq.LastLogIndex >= lastLogIndex)) {
 		voteRes.VoteGranted = true
 		r.votedFor = voteReq.CandidateId
 		r.resetHeartBeatTimer()
@@ -277,12 +286,13 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 }
 
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
-	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log) - 1)
+	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
+	pendingOperation.currentLeader = r.leaderId
 	if r.role != LEADER {
 		pendingOperation.isLeader = false
 	} else {
-		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation:req.Command})
+		r.log = append(r.log, LogEntry{Term: r.currentTerm, Operation: req.Command})
 		pendingOperation.isLeader = true
 		pendingOperation.logIndex = int32(len(r.log)) - 1
 	}
@@ -372,18 +382,19 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) {
 }
 
 func (r *Raft) setRole(newRole string) {
+	r.Debug("Changing role from %v to %v", r.role, newRole)
 	if r.role == newRole {
 		return
 	}
 
-	r.Debug("Changing role from %v to %v", r.role, newRole)
 	r.role = newRole
 }
 
-func (r *Raft) becomeFollower(term int32) {
+func (r *Raft) becomeFollower(term int32, leader PeerId) {
 	r.setRole(FOLLOWER)
 	r.currentTerm = term
 	r.votedFor = -1
+	r.leaderId = NIL_PEER
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
@@ -396,7 +407,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 	if res.Term > r.currentTerm {
 		r.Debug("currentTerm: %v, newTerm: %v", r.currentTerm, res.Term)
-		r.becomeFollower(res.Term)
+		r.becomeFollower(res.Term, res.PeerId)
 		return
 	}
 
@@ -431,7 +442,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 			// r.Debug("For index %v we have %v matches", i, matches)
 			if matches > r.peersSize()/2 {
 				r.commitIndex = i
-				r.applyRange(oldCommitIndex + 1, i)
+				r.applyRange(oldCommitIndex+1, i)
 				break
 			}
 
@@ -445,7 +456,7 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 
 type CommittedOperation struct {
 	Operation any
-	Index int32
+	Index     int32
 }
 
 func (r *Raft) applyRange(a, b int32) {
@@ -482,7 +493,7 @@ func (r *Raft) runAsLeader() {
 	defer close(appendCh.closeCh)
 
 	dummyEntry := LogEntry{
-		Term: r.currentTerm,
+		Term:      r.currentTerm,
 		Operation: Empty{},
 	}
 
@@ -491,14 +502,14 @@ func (r *Raft) runAsLeader() {
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
 
-	heartbeatTimer := time.After(getLeaderLease()) 
+	heartbeatTimer := time.After(getLeaderLease())
 	for r.role == LEADER {
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
-		case <- heartbeatTimer:
+		case <-heartbeatTimer:
 			r.broadcastAppendEntries(appendCh)
-			heartbeatTimer = time.After(getLeaderLease()) 
+			heartbeatTimer = time.After(getLeaderLease())
 		case appendRes := <-appendCh.C:
 			r.handleAppendEntriesResponse(appendRes)
 		}
@@ -527,7 +538,7 @@ func (r *Raft) runAsCandidate() {
 			return
 		case vote := <-votesCh:
 			if vote.Term > r.currentTerm {
-				r.becomeFollower(vote.Term)
+				r.becomeFollower(vote.Term, vote.PeerId)
 				r.Debug("Newer term. Fallback to follower")
 				return
 			}
@@ -566,6 +577,7 @@ func (r *Raft) runAsFollower() {
 			r.handleRpc(req)
 		case <-r.heartBeatTimer.C:
 			r.setRole(CANDIDATE)
+			r.leaderId = NIL_PEER
 			return
 		}
 	}
@@ -599,7 +611,7 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderLease() time.Duration {
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 2)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getElectionTimeout() time.Duration {
@@ -611,7 +623,7 @@ func getHeartbeatTimeout() time.Duration {
 }
 
 func getRandomTimeout(minTimeout, maxTimeout int) time.Duration {
-	return time.Duration(minTimeout +
-		rand.Intn(1+maxTimeout-minTimeout)*int(time.Millisecond),
+	return time.Duration((minTimeout +
+		rand.Intn(1+maxTimeout-minTimeout)) * int(time.Millisecond),
 	)
 }

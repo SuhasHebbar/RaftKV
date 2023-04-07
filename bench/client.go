@@ -13,6 +13,8 @@ import (
     "google.golang.org/grpc/credentials/insecure"
 )
 
+const NON_EXISTENT_KEY_MSG = "key does not exist."
+
 type Client struct {
     // Connections to each of the replicas forming the kv server
     replicas []pb.RaftRpcClient
@@ -199,7 +201,7 @@ func (client *Client) Get(keystr string, ctx context.Context) {
     var err error
 
     for i := 0; i < len(client.replicas); i++ {
-        clientId := (client.leaderId + i) % len(config.replicas)
+        clientId := (client.leaderId + i) % len(client.replicas)
         fmt.Println("Trying leaderId", clientId)
         response, err = client.replicas[int32(clientId)].Get(ctx, &key)
         Debugf("response %v, err %v", response, err)
@@ -280,7 +282,7 @@ func (client *Client) Delete(keystr string, ctx context.Context) {
             continue
         }
 
-        leaderId = clientId
+        client.leaderId = clientId
         break
     }
 

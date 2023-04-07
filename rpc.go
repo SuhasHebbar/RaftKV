@@ -1,4 +1,4 @@
-package main
+package kv
 
 import (
 	"context"
@@ -7,24 +7,27 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/SuhasHebbar/CS739-P2/config"
-	"github.com/SuhasHebbar/CS739-P2/kvstore"
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	empty "github.com/golang/protobuf/ptypes/empty"
+	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 )
 
 const REQUEST_TERMINATED = "Request was terminated."
 const NOT_LEADER = "Server is not a leader."
+const SIMULATED_PARTITION = "Simulated Partition"
 
 type RaftRpcServer struct {
 	raft       *Raft
 	clients    map[PeerId]pb.RaftRpcClient
-	kv         *kvstore.KVStore
+	kv         *KVStore
 	pendingOps map[int32]chan any
 	mu         sync.Mutex
 	pb.UnimplementedRaftRpcServer
+	config *Config
 }
 
 type RpcServer interface {
@@ -45,10 +48,11 @@ type Operation struct {
 
 type PendingOperation struct {
 	isLeader bool
+	currentLeader PeerId
 	logIndex int32
 }
 
-func NewRaftRpcServer(id PeerId, config *config.Config) *RaftRpcServer {
+func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 	peers := map[PeerId]Empty{}
 	clients := map[PeerId]pb.RaftRpcClient{}
 
@@ -75,8 +79,9 @@ func NewRaftRpcServer(id PeerId, config *config.Config) *RaftRpcServer {
 	self := &RaftRpcServer{}
 	self.raft = NewRaft(id, peers, self)
 	self.clients = clients
-	self.kv = kvstore.NewKVStore()
+	self.kv = NewKVStore()
 	self.pendingOps = map[int32]chan any{}
+	self.config = config
 
 	gob.Register(Empty{})
 	gob.Register(Operation{})
@@ -134,6 +139,12 @@ func (rs *RaftRpcServer) GetClient(peerId PeerId) pb.RaftRpcClient {
 }
 
 func (rs *RaftRpcServer) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	cmd := RpcCommand{
 		Command: in,
 		resp:    make(chan any, 1),
@@ -151,6 +162,12 @@ func (rs *RaftRpcServer) RequestVote(ctx context.Context, in *pb.RequestVoteRequ
 }
 
 func (rs *RaftRpcServer) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	cmd := RpcCommand{
 		Command: in,
 		resp:    make(chan any, 1),
@@ -167,30 +184,34 @@ func (rs *RaftRpcServer) AppendEntries(ctx context.Context, in *pb.AppendEntries
 	return resp, nil
 }
 
-func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand) (int32, error) {
+func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand) (PendingOperation,error) {
 	rs.raft.rpcCh <- cmd
-
-	var logIndex int32
 
 	select {
 	case <-ctx.Done():
-		return -1, errors.New(REQUEST_TERMINATED)
+		var pendingOperation PendingOperation
+		return pendingOperation, errors.New(REQUEST_TERMINATED)
 	case resp := <-cmd.resp:
 		pendingOp, ok := resp.(PendingOperation)
 		if !ok {
 			panic(ok)
 		}
+
 		if !pendingOp.isLeader {
-			return -1, errors.New(NOT_LEADER)
+			return pendingOp, errors.New(NOT_LEADER)
 		}
 
-		logIndex = pendingOp.logIndex
+		return pendingOp, nil
 	}
-
-	return logIndex, nil
 }
 
 func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name: GET,
 		Key:  key.Key,
@@ -201,14 +222,16 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 		resp:    make(chan any, 1),
 	}
 
-	logIndex, err := rs.scheduleRpcCommand(ctx, cmd)
+	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	res := rs.waitForResult(logIndex, ctx)
+	res := rs.waitForResult(pendingOp.logIndex, ctx)
 
 	resp := &pb.Response{}
+	resp.IsLeader = pendingOp.isLeader
+	resp.NewLeader = pendingOp.currentLeader
 
 	switch v := res.(type) {
 	case error:
@@ -225,6 +248,12 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 	panic(res)
 }
 func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name:  SET,
 		Key:   kvp.Key,
@@ -236,15 +265,28 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 		resp:    make(chan any, 1),
 	}
 
-	logIndex, err := rs.scheduleRpcCommand(ctx, cmd)
+	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
+
+	resp := &pb.Response{}
+	resp.IsLeader = pendingOp.isLeader
+	resp.NewLeader = pendingOp.currentLeader
+
 	if err != nil {
+		resp.Ok = false
 		return nil, err
 	}
 
-	rs.waitForResult(logIndex, ctx)
-	return &pb.Response{Ok: true}, nil
+	rs.waitForResult(pendingOp.logIndex, ctx)
+	resp.Ok = true
+	return resp, nil
 }
 func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response, error) {
+	if rs.config.Partitioned {
+		<-ctx.Done()
+		return nil, errors.New(SIMULATED_PARTITION)
+
+	}
+
 	op := Operation{
 		Name: DELETE,
 		Key:  key.Key,
@@ -255,13 +297,18 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 		resp:    make(chan any, 1),
 	}
 
-	logIndex, err := rs.scheduleRpcCommand(ctx, cmd)
+	pendingOp, err := rs.scheduleRpcCommand(ctx, cmd)
+
+	resp := &pb.Response{}
+	resp.Ok = false
+	resp.IsLeader = pendingOp.isLeader
+	resp.NewLeader = pendingOp.currentLeader
+
 	if err != nil {
-		return nil, err
+		return resp, err
 	}
 
-	res := rs.waitForResult(logIndex, ctx)
-	resp := &pb.Response{Ok: false}
+	res := rs.waitForResult(pendingOp.logIndex, ctx)
 	if res == nil {
 		resp.Ok = true
 	} else {
@@ -287,4 +334,9 @@ func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) any {
 	case result := <-pendingOpsCh:
 		return result
 	}
+}
+
+func (rs *RaftRpcServer) Partition(ctx context.Context, in *wrappers.BoolValue) (*empty.Empty, error) {
+	rs.config.Partitioned = in.Value
+	return &empty.Empty{}, nil
 }
