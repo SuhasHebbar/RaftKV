@@ -33,9 +33,9 @@ type RpcServer interface {
 }
 
 type PendingOperation struct {
-	isLeader bool
+	isLeader      bool
 	currentLeader PeerId
-	logIndex int32
+	logIndex      int32
 }
 
 func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
@@ -79,7 +79,7 @@ func NewRaftRpcServer(id PeerId, config *Config) *RaftRpcServer {
 
 type KVResult struct {
 	Value string
-	Err error
+	Err   error
 }
 
 func (rs *RaftRpcServer) startCommitListerLoop() {
@@ -88,6 +88,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		Debugf("Received operation for index %v", op.Index)
 		kvop := op.Operation
 
+		rs.mu.Lock()
 		result := &KVResult{}
 		if kvop.Type == pb.OperationType_GET {
 			value, err := rs.kv.Get(kvop.Key)
@@ -95,18 +96,16 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 			result.Err = err
 		} else if kvop.Type == pb.OperationType_SET {
 			rs.kv.Set(kvop.Key, kvop.Value)
-		} else {
+		} else if kvop.Type == pb.OperationType_DELETE {
 			err := rs.kv.Delete(kvop.Key)
 			result.Err = err
+		} else {
+			panic("Invalid operation passed to commit listener loop")
 		}
 
-		rs.mu.Lock()
-		// rs.raft.Debug("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA Operation is now saved!")
-		if rs.pendingOps[op.Index] == nil {
-			rs.pendingOps[op.Index] = make(chan *KVResult, 1)
+		if rs.pendingOps[op.Index] != nil {
+			rs.pendingOps[op.Index] <- result
 		}
-		rs.pendingOps[op.Index] <- result
-
 		rs.mu.Unlock()
 
 	}
@@ -163,7 +162,10 @@ func (rs *RaftRpcServer) AppendEntries(ctx context.Context, in *pb.AppendEntries
 	return resp, nil
 }
 
-func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand) (PendingOperation,error) {
+func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand) (PendingOperation, error) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
 	rs.raft.rpcCh <- cmd
 
 	select {
@@ -179,6 +181,8 @@ func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand)
 		if !pendingOp.isLeader {
 			return pendingOp, errors.New(NOT_LEADER)
 		}
+
+		rs.pendingOps[pendingOp.logIndex] = make(chan *KVResult, 1)
 
 		return pendingOp, nil
 	}
@@ -196,7 +200,7 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 	}
 
 	op := &pb.Operation{
-		Type:  pb.OperationType_GET,
+		Type: pb.OperationType_GET,
 		Key:  key.Key,
 	}
 
@@ -309,17 +313,20 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 }
 
 func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResult {
-	rs.mu.Lock()
-	if rs.pendingOps[index] == nil {
-		rs.pendingOps[index] = make(chan *KVResult, 1)
-	}
 	pendingOpsCh := rs.pendingOps[index]
-	rs.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
+		rs.mu.Lock()
+		delete(rs.pendingOps, index)
+		rs.mu.Unlock()
+
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
+		rs.mu.Lock()
+		delete(rs.pendingOps, index)
+		rs.mu.Unlock()
+
 		return result
 	}
 }

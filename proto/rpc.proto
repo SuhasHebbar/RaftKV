@@ -63,6 +63,7 @@ enum OperationType {
 	GET = 1;
 	SET = 2;
 	DELETE = 3;
+	FAST_GET = 4;
 }
 
 message Operation {
