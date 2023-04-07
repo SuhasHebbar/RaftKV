@@ -59,16 +59,21 @@ func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
     var wg sync.WaitGroup
 
     for _, key := range client.keys {
-        value := RandStringRunes(client.prng, valLen)
+        select {
+        case leaderId := <- client.leaderIdCh:
+            client.leaderId = leaderId
+        default:
+            value := RandStringRunes(client.prng, valLen)
 
-        wg.Add(1)
+            wg.Add(1)
 
-        // execute these in parallel
-        go func(key string, ctx context.Context) {
-            defer wg.Done()
+            // execute these in parallel
+            go func(key string, leaderId int, ctx context.Context) {
+                defer wg.Done()
 
-            client.Set(key, value, ctx)
-        }(key, ctx)
+                client.Set(key, value, leaderId, ctx)
+            }(key, client.leaderId, ctx)
+        }
     }
 
     wg.Wait()
