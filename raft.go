@@ -8,7 +8,6 @@ import (
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
-	"golang.org/x/exp/slog"
 )
 
 const Amp = 50
