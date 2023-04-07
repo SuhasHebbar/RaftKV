@@ -45,7 +45,7 @@ func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
         leaderId: 0,
         prng: prng,
         zlog: zlog,
-        leaderIdCh: make(chan int),
+        leaderIdCh: make(chan int, 10000),
     }
 }
 
@@ -63,20 +63,24 @@ func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
         case leaderId := <- client.leaderIdCh:
             client.leaderId = leaderId
         default:
-            value := RandStringRunes(client.prng, valLen)
-
-            wg.Add(1)
-
-            // execute these in parallel
-            go func(key string, leaderId int, ctx context.Context) {
-                defer wg.Done()
-
-                client.Set(key, value, leaderId, ctx)
-            }(key, client.leaderId, ctx)
         }
+
+        value := RandStringRunes(client.prng, valLen)
+
+        wg.Add(1)
+        slog.Info("Runnig goroutine for kv", "key", key, "value", value)
+
+        // execute these in parallel
+        go func(key string, leaderId int, ctx context.Context) {
+            defer wg.Done()
+
+            client.Set(key, value, leaderId, ctx)
+        }(key, client.leaderId, ctx)
     }
 
+    slog.Info("Waiting for goroutines to finish ...")
     wg.Wait()
+    slog.Info("Done waiting ...")
 }
 
 func ConnectReplicas(replicas []string) []pb.RaftRpcClient {
