@@ -57,7 +57,9 @@ func ClientEntryPoint() {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
 		if command == "get" {
-			handleGet(arguments, ctx)
+			handleGet(arguments, ctx, false)
+		} else if command == "fget" {
+			handleGet(arguments, ctx, true)
 		} else if command == "set" {
 			handleSet(arguments, ctx)
 		} else if command == "delete" {
@@ -71,7 +73,7 @@ func ClientEntryPoint() {
 	}
 }
 
-func handleGet(keystr string, ctx context.Context) {
+func handleGet(keystr string, ctx context.Context, skipQuorum bool) {
 
 	key := pb.Key{Key: keystr}
 	fmt.Println(keystr)
@@ -80,7 +82,11 @@ func handleGet(keystr string, ctx context.Context) {
 	for i := 0; i < len(config.Peers); i++ {
 		clientId := (leaderId + i) % len(config.Peers)
 		fmt.Println("Trying leaderId", clientId)
-		response, err = clients[int32(clientId)].Get(ctx, &key)
+		if skipQuorum {
+			response, err = clients[int32(clientId)].FastGet(ctx, &key)
+		} else {
+			response, err = clients[int32(clientId)].Get(ctx, &key)
+		}
 		Debugf("response %v, err %v", response, err)
 
 		if response == nil {

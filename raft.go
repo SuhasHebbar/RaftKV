@@ -332,11 +332,16 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 		if !ok {
 			panic("Received no Operation type")
 		}
-		r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
-		r.persistLogs()
-
 		pendingOperation.isLeader = true
-		pendingOperation.logIndex = int32(len(r.log)) - 1
+
+		if op.Type == pb.OperationType_FAST_GET {
+			commitIndex := r.commitIndex
+			pendingOperation.allowFastPath = commitIndex >= 0 && r.log[commitIndex].Term == r.currentTerm
+		} else {
+			r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
+			r.persistLogs()
+			pendingOperation.logIndex = int32(len(r.log)) - 1
+		}
 	}
 
 	req.resp <- pendingOperation
@@ -621,7 +626,7 @@ func (r *Raft) runAsLeader() {
 			nextLeaseTickDuration := leaseTimerDuration - oldestContactDiff
 
 			// Floor for lease duration
-			if nextLeaseTickDuration < 10 * time.Millisecond {
+			if nextLeaseTickDuration < 10*time.Millisecond {
 				nextLeaseTickDuration = 10 * time.Millisecond
 			}
 

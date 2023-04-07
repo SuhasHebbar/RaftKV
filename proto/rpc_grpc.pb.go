@@ -25,6 +25,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RaftRpcClient interface {
 	Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
+	FastGet(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
 	Set(ctx context.Context, in *KeyValuePair, opts ...grpc.CallOption) (*Response, error)
 	Delete(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error)
 	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteReply, error)
@@ -43,6 +44,15 @@ func NewRaftRpcClient(cc grpc.ClientConnInterface) RaftRpcClient {
 func (c *raftRpcClient) Get(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error) {
 	out := new(Response)
 	err := c.cc.Invoke(ctx, "/RaftRpc/Get", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftRpcClient) FastGet(ctx context.Context, in *Key, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
+	err := c.cc.Invoke(ctx, "/RaftRpc/FastGet", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +109,7 @@ func (c *raftRpcClient) Partition(ctx context.Context, in *wrappers.BoolValue, o
 // for forward compatibility
 type RaftRpcServer interface {
 	Get(context.Context, *Key) (*Response, error)
+	FastGet(context.Context, *Key) (*Response, error)
 	Set(context.Context, *KeyValuePair) (*Response, error)
 	Delete(context.Context, *Key) (*Response, error)
 	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteReply, error)
@@ -113,6 +124,9 @@ type UnimplementedRaftRpcServer struct {
 
 func (UnimplementedRaftRpcServer) Get(context.Context, *Key) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedRaftRpcServer) FastGet(context.Context, *Key) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FastGet not implemented")
 }
 func (UnimplementedRaftRpcServer) Set(context.Context, *KeyValuePair) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Set not implemented")
@@ -156,6 +170,24 @@ func _RaftRpc_Get_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RaftRpcServer).Get(ctx, req.(*Key))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RaftRpc_FastGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Key)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftRpcServer).FastGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/RaftRpc/FastGet",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftRpcServer).FastGet(ctx, req.(*Key))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -260,6 +292,10 @@ var RaftRpc_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Get",
 			Handler:    _RaftRpc_Get_Handler,
+		},
+		{
+			MethodName: "FastGet",
+			Handler:    _RaftRpc_FastGet_Handler,
 		},
 		{
 			MethodName: "Set",
