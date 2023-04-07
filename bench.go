@@ -1,14 +1,17 @@
-package bench
+package kv
 
 import (
     "context"
     "strings"
     "math/rand"
+    "os"
 
     flag "github.com/spf13/pflag"
+    "github.com/SuhasHebbar/CS739-P2/bench"
+    "golang.org/x/exp/slog"
 )
 
-func main() {
+func BenchEntryPoint() {
     // Initialize random seed
     seed := int64(0xD)
     prng := rand.New(rand.NewSource(seed))
@@ -18,10 +21,19 @@ func main() {
     flag.Parse()
 
     // extract config options
-    config := GetConfig(*confname)
+    config := bench.GetConfig(*confname)
+
+    // setup logger
+    opts := slog.HandlerOptions{
+            Level: slog.LevelDebug,
+    }
+
+    textHandler := opts.NewTextHandler(os.Stdout)
+    logger := slog.New(textHandler)
+    slog.SetDefault(logger)
 
     // construct the raft client
-    client := NewClient(config, prng)
+    client := bench.NewClient(config, prng)
 
     // populate the database with some initial values before running our workloads
     if config.PopulateAllKeys {
@@ -30,13 +42,13 @@ func main() {
 
     // run the workload
     switch strings.ToLower(config.Mode) {
-        case RANDOM:
+        case bench.RANDOM:
             client.RunRandomWorkload(config.WriteProp, config.ValLen, context.Background())
-        case READ_RECENT:
+        case bench.READ_RECENT:
             client.RunReadRecentWorkload(config.WriteProp, config.ValLen, context.Background())
-        case READ_MODIFY_UPDATE:
+        case bench.READ_MODIFY_UPDATE:
             client.RunReadModifyUpdateWorkload(config.WriteProp, config.ValLen, context.Background())
-        case READ_RANGE:
+        case bench.READ_RANGE:
             client.RunReadRangeWorkload(config.WriteProp, config.ValLen, config.RangeScanNumKeys, context.Background())
     }
 }
