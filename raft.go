@@ -11,13 +11,11 @@ import (
 )
 
 // const Amp = 50
-const Amp = 1
+const Amp = 100
 
 // Election timeouts in milliseconds
-// const MIN_ELECTION_TIMEOUT = 150 * Amp
-// const MAX_ELECTION_TIMEOUT = 300 * Amp
-const MIN_ELECTION_TIMEOUT = 15 * Amp
-const MAX_ELECTION_TIMEOUT = 30 * Amp
+const MIN_ELECTION_TIMEOUT = 150 * Amp
+const MAX_ELECTION_TIMEOUT = 300 * Amp
 
 const RPC_TIMEOUT = 10 * time.Second * Amp
 
@@ -662,7 +660,9 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderLease() time.Duration {
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+	return time.Duration(10 * time.Second)
+	// return time.Duration(10 * time.Millisecond * 10)
+	// return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getElectionTimeout() time.Duration {
