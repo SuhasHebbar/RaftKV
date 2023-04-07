@@ -6,6 +6,7 @@ import (
     "math/rand"
     "os"
     "encoding/json"
+    "fmt"
 
     flag "github.com/spf13/pflag"
     "github.com/SuhasHebbar/CS739-P2/bench"
@@ -14,6 +15,15 @@ import (
 )
 
 func BenchEntryPoint() {
+    // setup logger
+    opts := slog.HandlerOptions{
+            Level: slog.LevelDebug,
+    }
+
+    textHandler := opts.NewTextHandler(os.Stdout)
+    logger := slog.New(textHandler)
+    slog.SetDefault(logger)
+
     // Initialize random seed
     seed := int64(0xD)
     prng := rand.New(rand.NewSource(seed))
@@ -25,37 +35,15 @@ func BenchEntryPoint() {
     // extract config options
     config := bench.GetConfig(*confname)
 
-    // setup logger
-    opts := slog.HandlerOptions{
-            Level: slog.LevelDebug,
-    }
-
-    textHandler := opts.NewTextHandler(os.Stdout)
-    logger := slog.New(textHandler)
-    slog.SetDefault(logger)
-
     // setup logger for zap
-    // rawJSON := []byte(`{
-    //   "level": "debug",
-    //   "encoding": "json",
-    //   "outputPaths": ["stdout", "/tmp/logs"],
-    //   "errorOutputPaths": ["stderr"],
-    //   "initialFields": {"foo": "bar"},
-    //   "encoderConfig": {
-    //     "messageKey": "message",
-    //     "levelKey": "level",
-    //     "levelEncoder": "lowercase"
-    //   }
-    // }`)
     rawJSON := []byte(`{
-      "level": "debug",
-      "encoding": "console",
-      "outputPaths": ["stdout", "/tmp/logs"],
-      "errorOutputPaths": ["stderr"]
+      "level": "info",
+      "encoding": "json",
+      "outputPaths": ["/tmp/loglat"]
     }`)
     var cfg zap.Config
     if err := json.Unmarshal(rawJSON, &cfg); err != nil {
-            panic(err)
+        panic(err)
     }
     zlog := zap.Must(cfg.Build())
     defer zlog.Sync()
@@ -78,5 +66,7 @@ func BenchEntryPoint() {
             client.RunReadModifyUpdateWorkload(config.WriteProp, config.ValLen, context.Background())
         case bench.READ_RANGE:
             client.RunReadRangeWorkload(config.WriteProp, config.ValLen, config.RangeScanNumKeys, context.Background())
+        default:
+            panic(fmt.Sprintln("Mode unrecognized", config.Mode))
     }
 }

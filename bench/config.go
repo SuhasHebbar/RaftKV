@@ -1,10 +1,7 @@
 package bench
 
 import (
-    "fmt"
-
     "github.com/spf13/viper"
-    "golang.org/x/exp/slog"
 )
 
 type Config struct {
@@ -58,13 +55,11 @@ func GetConfig(confname string) *Config {
 
     // read config options from file
     if err := viper.ReadInConfig(); err != nil {
-        slog.Error("Failed to read config", "err", err)
         panic(err)
     }
 
     // Unmarshal config into our struct
     config := &Config{}
     viper.UnmarshalExact(config)
-    fmt.Println("num replicas ", config.Replicas)
     return config
 }

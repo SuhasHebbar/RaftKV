@@ -33,15 +33,20 @@ type Client struct {
 }
 
 func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
+    slog.Info("Creating new client ...")
+
     return &Client{
         replicas: ConnectReplicas(config.Replicas),
         keys: GenerateKeys(prng, config.NumKeys, config.KeyLen),
         leaderId: 0,
         prng: prng,
+        zlog: zlog,
     }
 }
 
 func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
+    slog.Info("Populating database ...")
+
     // we do not expect each operation to take more than a second on average
     ctx, cancel := context.WithTimeout(pctx, time.Duration(len(client.keys)) * time.Second)
     defer cancel()
@@ -53,6 +58,8 @@ func (client *Client) PopulateDB(valLen int32, pctx context.Context) {
 }
 
 func ConnectReplicas(replicas []string) []pb.RaftRpcClient {
+    slog.Info("Connecting to replicas ...")
+
     // Connect to each replica
     clients := make([]pb.RaftRpcClient, len(replicas))
     for i, url := range replicas {
@@ -71,6 +78,8 @@ func ConnectReplicas(replicas []string) []pb.RaftRpcClient {
 }
 
 func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
+    slog.Info("Generating keys ...")
+
     keys := make([]string, numKeys)
     for i := 0; i < int(numKeys); i++ {
         keys[i] = RandStringRunes(prng, keyLen)
@@ -79,6 +88,8 @@ func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
 }
 
 func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
+    slog.Info("Starting the random workload with", "writeProp", writeProp, "valLen", valLen)
+
     for {
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
@@ -95,8 +106,11 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
             client.Set(key, value, ctx)
 
             // compute latency
-            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
-            slog.Info("Hmm, so zlog isnt working?")
+            client.zlog.Info("SET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "SET"),
+            )
         } else {
             // random read
             start := time.Now()
@@ -108,12 +122,18 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
             client.Get(key, ctx)
 
             // compute latency
-            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("GET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "GET"),
+            )
         }
     }
 }
 
 func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx context.Context) {
+    slog.Info("Starting the read recent workload with", "writeProp", writeProp, "valLen", valLen)
+
     // Initalize recent key randomly
     //   reset with last written key (same as last read key if previous op is not write)
     recent_key := client.keys[client.prng.Intn(len(client.keys))]
@@ -138,7 +158,11 @@ func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx
             recent_key = key
 
             // compute latency
-            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("SET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "SET"),
+            )
         } else {
             // recent read
             start := time.Now()
@@ -146,12 +170,18 @@ func (client *Client) RunReadRecentWorkload(writeProp float32, valLen int32, ctx
             client.Get(recent_key, ctx)
 
             // compute latency
-            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("GET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "GET"),
+            )
         }
     }
 }
 
 func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int32, ctx context.Context) {
+    slog.Info("Starting the read modify update workload with", "writeProp", writeProp, "valLen", valLen)
+
     for {
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
@@ -171,7 +201,11 @@ func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int3
             client.Set(key, value, ctx)
 
             // compute latency
-            client.zlog.Info("UPD", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("SET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "SET"),
+            )
         } else {
             // random read
             start := time.Now()
@@ -183,12 +217,18 @@ func (client *Client) RunReadModifyUpdateWorkload(writeProp float32, valLen int3
             client.Get(key, ctx)
 
             // compute latency
-            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("GET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "GET"),
+            )
         }
     }
 }
 
 func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rangeScanNumKeys int32, ctx context.Context) {
+    slog.Info("Starting the read range workload with", "writeProp", writeProp, "valLen", valLen)
+
     for {
         // decide whether to read or write
         if client.prng.Float32() <  writeProp {
@@ -205,7 +245,11 @@ func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rang
             client.Set(key, value, ctx)
 
             // compute latency
-            client.zlog.Info("SET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("SET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "SET"),
+            )
         } else {
             // scan a contiguous range from a random index
             start := time.Now()
@@ -220,7 +264,11 @@ func (client *Client) RunReadRangeWorkload(writeProp float32, valLen int32, rang
             }
 
             // compute latency
-            client.zlog.Info("GET", zap.Int64("latency", time.Since(start).Nanoseconds()))
+            client.zlog.Info("GET",
+                zap.Int64("latency", time.Since(start).Nanoseconds()),
+                zap.Int64("timestamp", time.Now().Unix()),
+                zap.String("operation", "GET"),
+            )
         }
     }
 }
