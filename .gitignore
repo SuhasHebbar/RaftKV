@@ -20,3 +20,6 @@ scripts/out
 scripts/id_ed25519*
 
 .vscode/
+
+raftlogs*
+raftvotes*
