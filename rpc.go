@@ -14,7 +14,7 @@ import (
 	empty "github.com/golang/protobuf/ptypes/empty"
 	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 
-"github.com/google/uuid"
+	"github.com/google/uuid"
 )
 
 const REQUEST_TERMINATED = "Request was terminated."
@@ -112,8 +112,10 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		pendingOpCh := rs.pendingOps[op.Operation.Id]
 		rs.mu.Unlock()
 
+		if pendingOpCh != nil {
+			pendingOpCh <- result
 
-		pendingOpCh <- result
+		}
 
 	}
 
@@ -207,7 +209,7 @@ func (rs *RaftRpcServer) FastGet(ctx context.Context, key *pb.Key) (*pb.Response
 	op := &pb.Operation{
 		Type: pb.OperationType_FAST_GET,
 		Key:  key.Key,
-		Id: uuid.New().String(),
+		Id:   uuid.New().String(),
 	}
 
 	cmd := RpcCommand{
@@ -224,7 +226,6 @@ func (rs *RaftRpcServer) FastGet(ctx context.Context, key *pb.Key) (*pb.Response
 		resp.Response = err.Error()
 		return resp, nil
 	}
-
 
 	if !pendingOp.allowFastPath {
 		resp.Ok = false
@@ -260,7 +261,7 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 	op := &pb.Operation{
 		Type: pb.OperationType_GET,
 		Key:  key.Key,
-		Id: uuid.New().String(),
+		Id:   uuid.New().String(),
 	}
 
 	cmd := RpcCommand{
@@ -310,7 +311,7 @@ func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Res
 		Type:  pb.OperationType_SET,
 		Key:   kvp.Key,
 		Value: kvp.Value,
-		Id: uuid.New().String(),
+		Id:    uuid.New().String(),
 	}
 
 	cmd := RpcCommand{
@@ -361,14 +362,13 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 	op := &pb.Operation{
 		Type: pb.OperationType_DELETE,
 		Key:  key.Key,
-		Id: uuid.New().String(),
+		Id:   uuid.New().String(),
 	}
 
 	cmd := RpcCommand{
 		Command: op,
 		resp:    make(chan any, 1),
 	}
-
 
 	rs.InitPendingOp(op.Id)
 	defer rs.ClearPendingOp(op.Id)
@@ -415,4 +415,3 @@ func (rs *RaftRpcServer) Partition(ctx context.Context, in *wrappers.BoolValue) 
 	rs.config.Partitioned = in.Value
 	return &empty.Empty{}, nil
 }
-
