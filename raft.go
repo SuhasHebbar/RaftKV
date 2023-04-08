@@ -22,6 +22,9 @@ const RPC_TIMEOUT = 10 * time.Second * Amp
 const VOTE_FILE_TEMPLATE = "raftvotes"
 const LOG_FILE_TEMPLATE = "raftlogs"
 
+// const CHANNEL_BUFFER_SIZE = 100
+const CHANNEL_BUFFER_SIZE = 100000
+
 const (
 	FOLLOWER  = "FOLLOWER"
 	CANDIDATE = "CANDIDATE"
@@ -111,8 +114,8 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
-		rpcCh:      make(chan RpcCommand, 100000),
-		commitCh:   make(chan CommittedOperation, 100000),
+		rpcCh:      make(chan RpcCommand, CHANNEL_BUFFER_SIZE),
+		commitCh:   make(chan CommittedOperation, CHANNEL_BUFFER_SIZE),
 		rpcHandler: rpcHandler,
 
 		electionTimeout: -1,
@@ -234,6 +237,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 	appendRes.PeerId = r.id
 
 	if appendReq.Term < r.currentTerm {
+		req.resp <- appendRes
 		return
 	}
 
@@ -617,6 +621,7 @@ func (r *Raft) runAsLeader() {
 			}
 		case <-leaderLeaseTimer:
 			contacted := 0
+			contactedIds := []int32{}
 			oldestContactDiff := time.Duration(0)
 			for peerId := range r.peers {
 				if peerId == r.id {
@@ -628,6 +633,7 @@ func (r *Raft) runAsLeader() {
 				contactDiff := now.Sub(leaderContactTimes[peerId])
 				if contactDiff < leaseTimerDuration {
 					contacted++
+					contactedIds = append(contactedIds, peerId)
 					if contactDiff > oldestContactDiff {
 						oldestContactDiff = contactDiff
 					}
@@ -635,7 +641,7 @@ func (r *Raft) runAsLeader() {
 			}
 
 			if contacted < r.minimumVotes() {
-				// r.Debug("Leader Lease expired contacted: %v.", contacted)
+				r.Debug("Leader Lease expired contacted: %v.", contactedIds)
 				r.becomeFollower(r.currentTerm, NIL_PEER)
 				break
 			}
@@ -673,6 +679,7 @@ func (r *Raft) runAsCandidate() {
 	r.persistVotes()
 
 	for r.role == CANDIDATE {
+		r.Info("Candidate loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
@@ -707,7 +714,6 @@ func (r *Raft) persistVotes() {
 	r.p.StoredVote.Term = r.currentTerm
 	r.p.StoredVote.VotedFor = r.votedFor
 	r.p.WriteVote(r.voteFileName)
-	// r.Debug("Persisted Votes")
 }
 
 func (r *Raft) persistLogs() {
@@ -734,9 +740,9 @@ func (r *Raft) runAsFollower() {
 	}()
 
 	for {
+		r.Info("Follower loop")
 		select {
 		case req := <-r.rpcCh:
-			// do nothing for now.
 			r.handleRpc(req)
 		case <-r.electionTimer.C:
 			r.setRole(CANDIDATE)

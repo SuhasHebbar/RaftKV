@@ -18,6 +18,7 @@ type SimpleClient struct {
 	leaderId int
 	clients  map[int32]pb.RaftRpcClient
 	config   *Config
+	deadline time.Duration
 }
 
 func NewSimpleClient() *SimpleClient {
@@ -39,6 +40,8 @@ func NewSimpleClient() *SimpleClient {
 
 	}
 
+	c.deadline = 10 * time.Hour
+
 	return &c
 }
 
@@ -51,58 +54,60 @@ func ClientEntryPoint() {
 	logger := slog.New(textHandler)
 	slog.SetDefault(logger)
 
-	// for i := 0; i < 10; i++ {
-	// 	go func() {
-	// 		c := NewSimpleClient()
-	// 		for {
-	// 			start := time.Now()
-	// 			c.handleGet("qwer", false)
-	// 			end := time.Now()
-	//
-	// 			fmt.Println("Ran for ", end.Sub(start))
-	// 		}
-	// 	}()
-	// }
-	//
-	//
-	//
-	// reader := bufio.NewReader(os.Stdin)
-	//
-	// reader.ReadString('\n')
+	for i := 0; i < 10; i++ {
+		ind := i
+		go func() {
+			c := NewSimpleClient()
+			c.handleSet("hello world")
+			for {
+				start := time.Now()
+				c.handleGet("hello", false)
+				end := time.Now()
+
+				fmt.Println(ind, " ran for ", end.Sub(start))
+			}
+		}()
+	}
+
+
 
 	reader := bufio.NewReader(os.Stdin)
-	c := NewSimpleClient()
-	for {
-		fmt.Printf("> ")
-		inputLine, _ := reader.ReadString('\n')
-		inputLine = strings.Replace(inputLine, "\n", "", -1)
-		command, arguments, _ := strings.Cut(inputLine, " ")
-		if arguments == "" {
-			fmt.Println("Invalid operation!")
-			continue
-		}
 
-		command = strings.ToLower(command)
+	reader.ReadString('\n')
 
-		start := time.Now()
-		if command == "get" {
-			c.handleGet(arguments, false)
-		} else if command == "fget" {
-			c.handleGet(arguments, true)
-		} else if command == "set" {
-			c.handleSet(arguments)
-		} else if command == "delete" {
-			c.handleDelete(arguments)
-
-		} else {
-			fmt.Println("Invalid operation!")
-		}
-
-		end := time.Now()
-
-		fmt.Println("Ran for ", end.Sub(start))
-
-	}
+	// reader := bufio.NewReader(os.Stdin)
+	// c := NewSimpleClient()
+	// for {
+	// 	fmt.Printf("> ")
+	// 	inputLine, _ := reader.ReadString('\n')
+	// 	inputLine = strings.Replace(inputLine, "\n", "", -1)
+	// 	command, arguments, _ := strings.Cut(inputLine, " ")
+	// 	if arguments == "" {
+	// 		fmt.Println("Invalid operation!")
+	// 		continue
+	// 	}
+	//
+	// 	command = strings.ToLower(command)
+	//
+	// 	start := time.Now()
+	// 	if command == "get" {
+	// 		c.handleGet(arguments, false)
+	// 	} else if command == "fget" {
+	// 		c.handleGet(arguments, true)
+	// 	} else if command == "set" {
+	// 		c.handleSet(arguments)
+	// 	} else if command == "delete" {
+	// 		c.handleDelete(arguments)
+	//
+	// 	} else {
+	// 		fmt.Println("Invalid operation!")
+	// 	}
+	//
+	// 	end := time.Now()
+	//
+	// 	fmt.Println("Ran for ", end.Sub(start))
+	//
+	// }
 }
 
 func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
@@ -111,7 +116,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 	var response *pb.Response
 	var err error
 	for i := 0; i < len(c.config.Peers); i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
 		clientId := (c.leaderId + i) % len(c.config.Peers)
@@ -163,7 +168,7 @@ func (c *SimpleClient) handleSet(arguments string) {
 	var response *pb.Response
 	var err error
 	for i := 0; i < len(c.config.Peers); i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
 		clientId := (c.leaderId + i) % len(c.config.Peers)
@@ -196,7 +201,7 @@ func (c *SimpleClient) handleDelete(arguments string) {
 	var response *pb.Response
 	var err error
 	for i := 0; i < len(c.config.Peers); i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
 		clientId := (c.leaderId + i) % len(c.config.Peers)
