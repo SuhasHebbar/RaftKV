@@ -16,7 +16,6 @@ type KVStore struct {
 
 func (kv *KVStore) Get(key string) (string, error) {
 	val, hasKey := kv.store[key]
-	Debugf("OPERATION GET: %v = %v", key, hasKey)
 
 	if hasKey {
 		return val, nil
@@ -26,7 +25,6 @@ func (kv *KVStore) Get(key string) (string, error) {
 }
 
 func (kv *KVStore) Set(key, value string) {
-	Debugf("OPERATION SET: %v = %v", key, value)
 	kv.store[key] = value
 }
 
@@ -36,8 +34,6 @@ func (kv *KVStore) Delete(key string) error {
 		return errors.New(NON_EXISTENT_KEY_MSG)
 	}
 
-
-	Debugf("OPERATION DELETE: %v = %v", key, hasKey)
 	delete(kv.store, key)
 	return nil
 }
@@ -66,11 +62,10 @@ func (kvs *SimpleKVRpcServer) Get(c context.Context, key *pb.Key) (*pb.Response,
 	defer kvs.lock.Unlock()
 
 	val, err := kvs.kv.Get(key.Key)
-	response := &pb.Response{Response: val, Ok: true}
+	response := &pb.Response{Response: val, Ok: true, IsLeader: true}
 	if err != nil {
 		response.Ok = false
 		response.Response = err.Error()
-
 	}
 
 	return response, nil
@@ -83,6 +78,7 @@ func (kvs *SimpleKVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) 
 	kvs.kv.Set(keyValue.Key, keyValue.Value)
 	response := &pb.Response{
 		Ok: true,
+		IsLeader: true,
 	}
 
 	return response, nil
@@ -95,7 +91,7 @@ func (kvs *SimpleKVRpcServer) Delete(c context.Context, key *pb.Key) (*pb.Respon
 
 	err := kvs.kv.Delete(key.Key)
 
-	response := &pb.Response{Ok: true}
+	response := &pb.Response{Ok: true, IsLeader: true}
 	if err != nil {
 		response.Ok = false
 		response.Response = err.Error()

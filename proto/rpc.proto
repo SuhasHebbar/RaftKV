@@ -7,6 +7,7 @@ import "google/protobuf/wrappers.proto";
 
 service RaftRpc {
 	rpc Get(Key) returns (Response) {}
+	rpc FastGet(Key) returns (Response) {}
 	rpc Set(KeyValuePair) returns (Response) {}
 	rpc Delete(Key) returns (Response) {}
 	rpc RequestVote(RequestVoteRequest) returns (RequestVoteReply) {}
@@ -63,6 +64,7 @@ enum OperationType {
 	GET = 1;
 	SET = 2;
 	DELETE = 3;
+	FAST_GET = 4;
 }
 
 message Operation {
