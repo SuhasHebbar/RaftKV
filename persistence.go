@@ -1,6 +1,10 @@
 package kv
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"io"
 	"io/ioutil"
 	"os"
 
@@ -15,11 +19,11 @@ type Vote struct {
 
 type Persistence struct {
 	StoredVote *pb.StoredVote
-	StoredLogs  *pb.StoredLog
+	StoredLogs *pb.StoredLog
 }
 
 func (p *Persistence) WriteLog(filename string) {
-	tmpfile, err := ioutil.TempFile("/tmp", "storedlog-*.txt")
+	tmpfile, err := os.CreateTemp("/tmp", "storedlog-*.txt")
 	if err != nil {
 		Debugf("tmpfile %v", err)
 		panic(err)
@@ -27,23 +31,53 @@ func (p *Persistence) WriteLog(filename string) {
 
 	tmpfileName := tmpfile.Name()
 
+	totalSizePersisted := 0
 
+	for _, log := range p.StoredLogs.Logs {
+		buf, err := proto.Marshal(log)
+		if err != nil {
+			Debugf("protomarshall %v", err)
+			panic(err)
+		}
 
-	buf, err := proto.Marshal(p.StoredLogs)
-	if err != nil {
-		Debugf("protomarshall %v", err)
-		panic(err)
+		size := len(buf)
+		sizeBuf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(sizeBuf, uint32(size))
+
+		h := sha256.New()
+
+		_, err = h.Write(buf)
+		if err != nil {
+			Debugf("protohash %v", err)
+			panic(err)
+		}
+
+		hash := h.Sum(nil)
+		hash = hash[:4]
+
+		// Start writing log entry details to file.
+		_, err = tmpfile.Write(sizeBuf)
+		if err != nil {
+			Debugf("protohash %v", err)
+			panic(err)
+		}
+
+		_, err = tmpfile.Write(hash)
+		if err != nil {
+			Debugf("protohash %v", err)
+			panic(err)
+		}
+
+		_, err = tmpfile.Write(buf)
+		if err != nil {
+			Debugf("protohash %v", err)
+			panic(err)
+		}
+
+		totalSizePersisted += 4*2 + size
 	}
 
-
-	Infof("Persisting %v log bytes", len(buf))
-
-	_, err = tmpfile.Write(buf)
-	if err != nil {
-		Debugf("tmpfilewrite %v", err)
-		panic(err)
-	}
-
+	Debugf("Persisting %v log bytes", totalSizePersisted)
 	tmpfile.Close()
 
 	err = os.Rename(tmpfileName, filename)
@@ -61,8 +95,6 @@ func (p *Persistence) WriteVote(filename string) {
 	}
 
 	tmpfileName := tmpfile.Name()
-
-
 
 	buf, err := proto.Marshal(p.StoredVote)
 	if err != nil {
@@ -88,17 +120,65 @@ func (p *Persistence) WriteVote(filename string) {
 }
 
 func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
-	storedLog := &pb.StoredLog{}
-	buf, err := os.ReadFile(filename)
-
+	storedLog := &pb.StoredLog{Logs: []*pb.LogEntry{}}
+	file, err := os.Open(filename)
 	if err != nil {
 		return storedLog, err
 	}
 
-	err = proto.Unmarshal(buf, storedLog)
-	if err != nil {
-		Debugf("unmarshall %v", err)
-		panic(err)
+	for i := 0; ; i++ {
+		sizeBuf := make([]byte, 4)
+		_, err := file.Read(sizeBuf)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			Debugf("fileread size %v", err)
+			panic(err)
+		}
+
+		size := int(binary.LittleEndian.Uint32(sizeBuf))
+
+		hash := make([]byte, 4)
+		_, err = file.Read(hash)
+		if err != nil {
+			Debugf("fileread hash %v", err)
+			panic(err)
+		}
+
+		protoBin := make([]byte, size)
+		_, err = file.Read(protoBin)
+		if err != nil {
+			Debugf("fileread proto %v", err)
+			panic(err)
+		}
+
+		h := sha256.New()
+
+		_, err = h.Write(protoBin)
+		if err != nil {
+			Debugf("proto hash match %v", err)
+			panic(err)
+		}
+
+		calcHash := h.Sum(nil)
+		calcHash = hash[:4]
+
+		if !bytes.Equal(hash, calcHash) {
+			Debugf("proto hash mismatch at %v %v", i, err)
+			break
+		}
+
+		logEntry := &pb.LogEntry{}
+		err = proto.Unmarshal(protoBin, logEntry)
+		if err != nil {
+			Debugf("proto unmarshall issue at %v %v", i, err)
+			break
+		}
+
+		storedLog.Logs = append(storedLog.Logs, logEntry)
+
 	}
 
 	return storedLog, err

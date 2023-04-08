@@ -51,55 +51,58 @@ func ClientEntryPoint() {
 	logger := slog.New(textHandler)
 	slog.SetDefault(logger)
 
-	for i := 0; i < 10; i++ {
-		go func() {
-			c := NewSimpleClient()
-			for {
-				start := time.Now()
-				c.handleGet("qwer", false)
-				end := time.Now()
-
-				fmt.Println("Ran for ", end.Sub(start))
-			}
-		}()
-	}
-
-
+	// for i := 0; i < 10; i++ {
+	// 	go func() {
+	// 		c := NewSimpleClient()
+	// 		for {
+	// 			start := time.Now()
+	// 			c.handleGet("qwer", false)
+	// 			end := time.Now()
+	//
+	// 			fmt.Println("Ran for ", end.Sub(start))
+	// 		}
+	// 	}()
+	// }
+	//
+	//
+	//
+	// reader := bufio.NewReader(os.Stdin)
+	//
+	// reader.ReadString('\n')
 
 	reader := bufio.NewReader(os.Stdin)
+	c := NewSimpleClient()
+	for {
+		fmt.Printf("> ")
+		inputLine, _ := reader.ReadString('\n')
+		inputLine = strings.Replace(inputLine, "\n", "", -1)
+		command, arguments, _ := strings.Cut(inputLine, " ")
+		if arguments == "" {
+			fmt.Println("Invalid operation!")
+			continue
+		}
 
-	reader.ReadString('\n')
-	// for {
-	// 	fmt.Printf("> ")
-	// 	inputLine, _ := reader.ReadString('\n')
-	// 	inputLine = strings.Replace(inputLine, "\n", "", -1)
-	// 	command, arguments, _ := strings.Cut(inputLine, " ")
-	// 	if arguments == "" {
-	// 		fmt.Println("Invalid operation!")
-	// 		continue
-	// 	}
-	//
-	// 	command = strings.ToLower(command)
-	//
-	// 	start := time.Now()
-	// 	if command == "get" {
-	// 		c.handleGet(arguments, false)
-	// 	} else if command == "fget" {
-	// 		c.handleGet(arguments, true)
-	// 	} else if command == "set" {
-	// 		c.handleSet(arguments)
-	// 	} else if command == "delete" {
-	// 		c.handleDelete(arguments)
-	//
-	// 	} else {
-	// 		fmt.Println("Invalid operation!")
-	// 	}
-	//
-	// 	end := time.Now()
-	//
-	// 	fmt.Println("Ran for ", end.Sub(start))
-	//
-	// }
+		command = strings.ToLower(command)
+
+		start := time.Now()
+		if command == "get" {
+			c.handleGet(arguments, false)
+		} else if command == "fget" {
+			c.handleGet(arguments, true)
+		} else if command == "set" {
+			c.handleSet(arguments)
+		} else if command == "delete" {
+			c.handleDelete(arguments)
+
+		} else {
+			fmt.Println("Invalid operation!")
+		}
+
+		end := time.Now()
+
+		fmt.Println("Ran for ", end.Sub(start))
+
+	}
 }
 
 func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
