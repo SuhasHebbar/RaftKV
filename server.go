@@ -2,8 +2,12 @@ package kv
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
@@ -11,6 +15,15 @@ import (
 )
 
 func ServerEntryPoint() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
+
+	go func() {
+		<- sigs
+		panic(fmt.Sprintln("timestamp", time.Now().UnixMilli()))
+	}()
+
+
 	opts := slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}

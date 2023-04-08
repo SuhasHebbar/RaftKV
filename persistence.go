@@ -36,7 +36,7 @@ func (p *Persistence) WriteLog(filename string) {
 	}
 
 
-	Infof("Persisting %v log bytes", len(buf))
+	Debugf("Persisting %v log bytes", len(buf))
 
 	_, err = tmpfile.Write(buf)
 	if err != nil {
@@ -70,7 +70,7 @@ func (p *Persistence) WriteVote(filename string) {
 		panic(err)
 	}
 
-	Infof("Persisting %v vote bytes", len(buf))
+	Debugf("Persisting %v vote bytes", len(buf))
 
 	_, err = tmpfile.Write(buf)
 	if err != nil {

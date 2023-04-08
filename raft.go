@@ -11,7 +11,7 @@ import (
 )
 
 // const Amp = 50
-const Amp = 100
+const Amp = 1
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -580,7 +580,8 @@ func (r *Raft) runAsCandidate() {
 			}
 
 			if currentVotes >= targetVotes {
-				r.Debug("Won election for term: %v, currentVotes: %v", r.currentTerm, currentVotes)
+				// r.Debug("Won election for term: %v, currentVotes: %v", r.currentTerm, currentVotes)
+				r.Info("Won election for term: %v, currentVotes: %v, time: %v", r.currentTerm, currentVotes, time.Now().UnixMilli())
 				r.setRole(LEADER)
 				r.leaderId = r.id
 				return
@@ -599,11 +600,9 @@ func (r *Raft) persistVotes() {
 }
 
 func (r *Raft) persistLogs() {
-	startTime := time.Now()
 	r.p.StoredLogs.Logs = r.log
 	r.p.WriteLog(r.logFileName)
 	r.Debug("Persisted Logs")
-	r.Info("persist time::", "latency", time.Since(startTime))
 }
 
 
@@ -660,9 +659,8 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderLease() time.Duration {
-	return time.Duration(10 * time.Second)
 	// return time.Duration(10 * time.Millisecond * 10)
-	// return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getElectionTimeout() time.Duration {

@@ -101,7 +101,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		}
 
 		rs.mu.Lock()
-		// rs.raft.Debug("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA Operation is now saved!")
+		Infof("Returning response for %v", op.Operation)
 		if rs.pendingOps[op.Index] == nil {
 			rs.pendingOps[op.Index] = make(chan *KVResult, 1)
 		}
