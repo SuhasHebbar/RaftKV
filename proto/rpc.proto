@@ -69,14 +69,14 @@ enum OperationType {
 
 message Operation {
 	OperationType type = 1;
-	string key = 2;
-	string value = 3;
+	string id  = 2;
+	string key = 3;
+	string value = 4;
 }
 
 message LogEntry {
 	int32 term = 1;
-	int32 index = 2;
-	Operation operation = 3;
+	Operation operation = 2;
 }
 
 message StoredVote {

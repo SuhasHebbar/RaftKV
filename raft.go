@@ -10,7 +10,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 50
+const Amp = 20
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -20,6 +20,8 @@ const RPC_TIMEOUT = 10 * time.Second * Amp
 
 const VOTE_FILE_TEMPLATE = "raftvotes"
 const LOG_FILE_TEMPLATE = "raftlogs"
+
+const CHANNEL_BUFFER_SIZE = 1000
 
 const (
 	FOLLOWER  = "FOLLOWER"
@@ -108,8 +110,8 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
-		rpcCh:      make(chan RpcCommand),
-		commitCh:   make(chan CommittedOperation),
+		rpcCh:      make(chan RpcCommand, CHANNEL_BUFFER_SIZE),
+		commitCh:   make(chan CommittedOperation, CHANNEL_BUFFER_SIZE),
 		rpcHandler: rpcHandler,
 
 		electionTimeout: -1,
