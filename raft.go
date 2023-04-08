@@ -679,7 +679,7 @@ func (r *Raft) runAsCandidate() {
 	r.persistVotes()
 
 	for r.role == CANDIDATE {
-		r.Info("Candidate loop")
+		r.Debug("Candidate loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
