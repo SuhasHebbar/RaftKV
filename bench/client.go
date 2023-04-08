@@ -114,7 +114,7 @@ func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
 }
 
 func getTriggerTimeout() time.Duration {
-    return time.Millisecond
+    return 10 * time.Millisecond
 }
 
 func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
@@ -152,8 +152,8 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
                 // pick a random key
                 key := client.keys[client.prng.Intn(len(client.keys))]
 
-                leaderId := client.leaderId
-                // go func(key string, leaderId int, ctx context.Context) {
+                // leaderId := client.leaderId
+                go func(key string, leaderId int, ctx context.Context) {
                     // random read
                     start := time.Now()
 
@@ -166,7 +166,7 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
                         zap.Int64("timestamp", time.Now().Unix()),
                         zap.String("operation", "GET"),
                     )
-                // }(key, client.leaderId, ctx)
+                }(key, client.leaderId, ctx)
             }
 
             triggerTimer = time.After(getTriggerTimeout())

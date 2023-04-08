@@ -26,9 +26,9 @@ def main():
 	print("median write throughput", np.median(np.array([t for t in write_throughput.values()])))
 	
 	nprl = np.array(read_latencies)
-	print("read latencies", np.percentile(nprl, [50, 75, 90, 99]))
+	print("read latencies [50, 75, 90, 99]", np.percentile(nprl, [50, 75, 90, 99]))
 	
 	npwl = np.array(write_latencies)
-	print("read latencies", np.percentile(npwl, [50, 75, 90, 99]))
+	print("write latencies [50, 75, 90, 99]", np.percentile(npwl, [50, 75, 90, 99]))
 
 main()
