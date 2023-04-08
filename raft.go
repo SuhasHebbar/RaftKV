@@ -111,8 +111,8 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
-		rpcCh:      make(chan RpcCommand, 10000),
-		commitCh:   make(chan CommittedOperation, 10000),
+		rpcCh:      make(chan RpcCommand, 50000),
+		commitCh:   make(chan CommittedOperation, 50000),
 		rpcHandler: rpcHandler,
 
 		electionTimeout: -1,
