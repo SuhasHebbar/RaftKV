@@ -94,7 +94,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		rs.raft.Info("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
 
 		rs.mu.Lock()
-		Infof("")
+		// Infof("Entered critical section, commit")
 		result := &KVResult{}
 		if kvop.Type == pb.OperationType_GET {
 			value, err := rs.kv.Get(kvop.Key)
@@ -177,9 +177,11 @@ func (rs *RaftRpcServer) AppendEntries(ctx context.Context, in *pb.AppendEntries
 
 func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand) (PendingOperation, error) {
 	rs.mu.Lock()
+	// Infof("Entered critical section, schedule")
 	defer rs.mu.Unlock()
 
 	rs.raft.rpcCh <- cmd
+	// Infof("Scheduled command")
 
 	select {
 	case <-ctx.Done():
@@ -241,6 +243,7 @@ func (rs *RaftRpcServer) FastGet(ctx context.Context, key *pb.Key) (*pb.Response
 	}
 
 	rs.mu.Lock()
+	// Infof("Entered, kv get")
 	result, err := rs.kv.Get(key.Key)
 
 	if err != nil {
@@ -394,6 +397,7 @@ func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResu
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
 		rs.mu.Lock()
+		// Infof("Entered critical section, pending ops")
 		delete(rs.pendingOps, index)
 		rs.mu.Unlock()
 
