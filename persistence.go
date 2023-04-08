@@ -149,6 +149,8 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 		return storedLog, err
 	}
 
+	partiallyCorruptedLog := false
+
 	for i := 0; ; i++ {
 		sizeBuf := make([]byte, 4)
 		_, err := file.Read(sizeBuf)
@@ -158,7 +160,8 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 
 		if err != nil {
 			Debugf("fileread size %v", err)
-			panic(err)
+			partiallyCorruptedLog = true
+			break
 		}
 
 		size := int(binary.LittleEndian.Uint32(sizeBuf))
@@ -167,14 +170,16 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 		_, err = file.Read(hash)
 		if err != nil {
 			Debugf("fileread hash %v", err)
-			panic(err)
+			partiallyCorruptedLog = true
+			break
 		}
 
 		protoBin := make([]byte, size)
 		_, err = file.Read(protoBin)
 		if err != nil {
 			Debugf("fileread proto %v", err)
-			panic(err)
+			partiallyCorruptedLog = true
+			break
 		}
 
 		h := sha256.New()
@@ -182,7 +187,8 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 		_, err = h.Write(protoBin)
 		if err != nil {
 			Debugf("proto hash match %v", err)
-			panic(err)
+			partiallyCorruptedLog = true
+			break
 		}
 
 		calcHash := h.Sum(nil)
@@ -190,6 +196,7 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 
 		if !bytes.Equal(hash, calcHash) {
 			Debugf("proto hash mismatch at %v %v", i, err)
+			partiallyCorruptedLog = true
 			break
 		}
 
@@ -197,11 +204,19 @@ func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {
 		err = proto.Unmarshal(protoBin, logEntry)
 		if err != nil {
 			Debugf("proto unmarshall issue at %v %v", i, err)
+			partiallyCorruptedLog = true
 			break
 		}
 
 		storedLog.Logs = append(storedLog.Logs, logEntry)
 
+	}
+
+	file.Close()
+
+	p.StoredLogs = storedLog
+	if partiallyCorruptedLog {
+		p.WriteLog(filename)
 	}
 
 	return storedLog, err
