@@ -11,7 +11,7 @@ import (
 )
 
 // const Amp = 50
-const Amp = 3
+const Amp = 1
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -780,7 +780,8 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderHeartbeatTimeout() time.Duration {
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+	return time.Duration(1 * time.Millisecond)
+	// return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getLeaderLeaseTimeout() time.Duration {
