@@ -24,7 +24,7 @@ func ServerEntryPoint() {
 	// }()
 
 	opts := slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 	}
 
 	textHandler := opts.NewTextHandler(os.Stdout)
