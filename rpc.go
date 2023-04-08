@@ -378,7 +378,7 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 }
 
 func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResult {
-	start := time.Now()
+	// start := time.Now()
 	rs.mu.Lock()
 	pendingOpsCh := rs.pendingOps[index]
 	rs.mu.Unlock()
