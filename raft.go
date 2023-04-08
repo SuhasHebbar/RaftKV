@@ -780,8 +780,7 @@ func getRandomTimer() <-chan time.Time {
 }
 
 func getLeaderHeartbeatTimeout() time.Duration {
-	return time.Duration(5 * time.Millisecond)
-	// return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getLeaderLeaseTimeout() time.Duration {
