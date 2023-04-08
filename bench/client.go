@@ -119,15 +119,18 @@ func (client *Client) getRandomTimeout(minTimeout, maxTimeout int) time.Duration
     )
 }
 
-const NUM_THREADS = 10
+func getTriggerTimeout() time.Duration {
+    return 2300 * time.Microsecond
+}
 
 func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
     slog.Info("Starting the random workload with", "writeProp", writeProp, "valLen", valLen)
 
-    for i := 0; i < 10; i++ {
-        for {
-            time.Sleep(client.getRandomTimeout(50, 100))
+    triggerTimerCh := time.After(getTriggerTimeout())
 
+    for {
+        select {
+        case <- triggerTimerCh:
             // decide whether to read or write
             if client.prng.Float32() <  writeProp {
                 // pick a random key
@@ -171,6 +174,10 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
                     )
                 }(key, client.leaderId, ctx)
             }
+
+            triggerTimerCh = time.After(getTriggerTimeout())
+        case leaderId := <- client.leaderIdCh:
+            client.leaderId = leaderId 
         }
     }
 }
