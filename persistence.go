@@ -22,18 +22,10 @@ type Persistence struct {
 	StoredLogs *pb.StoredLog
 }
 
-func (p *Persistence) WriteLog(filename string) {
-	tmpfile, err := os.CreateTemp("/tmp", "storedlog-*.txt")
-	if err != nil {
-		Debugf("tmpfile %v", err)
-		panic(err)
-	}
-
-	tmpfileName := tmpfile.Name()
-
+func (p *Persistence) WriteLogToHandle(file *os.File, logs []*pb.LogEntry) int {
 	totalSizePersisted := 0
 
-	for _, log := range p.StoredLogs.Logs {
+	for _, log := range logs {
 		buf, err := proto.Marshal(log)
 		if err != nil {
 			Debugf("protomarshall %v", err)
@@ -56,19 +48,19 @@ func (p *Persistence) WriteLog(filename string) {
 		hash = hash[:4]
 
 		// Start writing log entry details to file.
-		_, err = tmpfile.Write(sizeBuf)
+		_, err = file.Write(sizeBuf)
 		if err != nil {
 			Debugf("protohash %v", err)
 			panic(err)
 		}
 
-		_, err = tmpfile.Write(hash)
+		_, err = file.Write(hash)
 		if err != nil {
 			Debugf("protohash %v", err)
 			panic(err)
 		}
 
-		_, err = tmpfile.Write(buf)
+		_, err = file.Write(buf)
 		if err != nil {
 			Debugf("protohash %v", err)
 			panic(err)
@@ -76,6 +68,20 @@ func (p *Persistence) WriteLog(filename string) {
 
 		totalSizePersisted += 4*2 + size
 	}
+
+	return totalSizePersisted
+}
+
+func (p *Persistence) WriteLog(filename string) {
+	tmpfile, err := os.CreateTemp("/tmp", "storedlog-*.txt")
+	if err != nil {
+		Debugf("tmpfile %v", err)
+		panic(err)
+	}
+
+	tmpfileName := tmpfile.Name()
+
+	totalSizePersisted := p.WriteLogToHandle(tmpfile, p.StoredLogs.Logs)
 
 	Debugf("Persisting %v log bytes", totalSizePersisted)
 	tmpfile.Close()
@@ -117,6 +123,23 @@ func (p *Persistence) WriteVote(filename string) {
 		Debugf("tmpfilewrite %v", err)
 		panic(err)
 	}
+}
+
+func (p *Persistence) AppendLog(filename string, logs []*pb.LogEntry) {
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	defer file.Close()
+
+	if err != nil {
+		Debugf("openfile fail %v", err)
+		panic(err)
+	}
+
+	bytesAdded := p.WriteLogToHandle(file, logs)
+	Debugf("Appending %v log bytes", bytesAdded)
+
+
+
+
 }
 
 func (p *Persistence) ReadLog(filename string) (*pb.StoredLog, error) {

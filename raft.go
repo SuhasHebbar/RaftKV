@@ -264,10 +264,17 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		}
 
 		if entriesOffset < len(entries) {
+
+			oldLogSize := len(r.log)
 			// r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
+
 			// persist log entries
-			r.persistLogs()
+			if logInsertOffset < oldLogSize {
+				r.persistLogs()
+			} else {
+				r.appendLogs(entries[entriesOffset:])
+			}
 		}
 
 		// r.Debug("leadercommit: %v, localcommitindex: %v", appendReq.LeaderCommit, r.commitIndex)
@@ -341,8 +348,11 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 			commitIndex := r.commitIndex
 			pendingOperation.allowFastPath = commitIndex >= 0 && r.log[commitIndex].Term == r.currentTerm
 		} else {
-			r.log = append(r.log, &pb.LogEntry{Term: r.currentTerm, Operation: op})
-			r.persistLogs()
+			newLogEntry := &pb.LogEntry{Term: r.currentTerm, Operation: op}
+			r.log = append(r.log, newLogEntry)
+
+			r.appendLogs([]*pb.LogEntry{newLogEntry})
+
 			pendingOperation.logIndex = int32(len(r.log)) - 1
 		}
 	}
@@ -576,7 +586,7 @@ func (r *Raft) runAsLeader() {
 	// Add dummy entry to ensure previous term entries are commited on followers.
 	r.log = append(r.log, dummyEntry)
 	// persist log entries
-	r.persistLogs()
+	r.appendLogs([]*pb.LogEntry{dummyEntry})
 
 	// Call it in the beginning to ensure heartbeat is sent.
 	r.broadcastAppendEntries(appendCh)
@@ -699,6 +709,11 @@ func (r *Raft) persistVotes() {
 func (r *Raft) persistLogs() {
 	r.p.StoredLogs.Logs = r.log
 	r.p.WriteLog(r.logFileName)
+	// r.Debug("Persisted Logs")
+}
+
+func (r *Raft) appendLogs(logs []*pb.LogEntry) {
+	r.p.AppendLog(r.logFileName, logs)
 	// r.Debug("Persisted Logs")
 }
 
