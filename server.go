@@ -2,11 +2,11 @@ package kv
 
 import (
 	"flag"
-	"fmt"
+	// "fmt"
 	"net"
 	"os"
-	"os/signal"
-	"syscall"
+	// "os/signal"
+	// "syscall"
 	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
@@ -15,14 +15,13 @@ import (
 )
 
 func ServerEntryPoint() {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
-
-	go func() {
-		<- sigs
-		panic(fmt.Sprintln("timestamp", time.Now().UnixMilli()))
-	}()
-
+	// sigs := make(chan os.Signal, 1)
+	// signal.Notify(sigs, syscall.SIGTERM)
+	//
+	// go func() {
+	// 	<- sigs
+	// 	panic(fmt.Sprintln("timestamp", time.Now().UnixMilli()))
+	// }()
 
 	opts := slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -32,7 +31,9 @@ func ServerEntryPoint() {
 	logger := slog.New(textHandler)
 	slog.SetDefault(logger)
 
-	Debugf("this should print %d", 22)
+	Infof("Start timestamp: %v", time.Now().UnixMilli())
+
+	// Debugf("this should print %d", 22)
 	idArg := flag.Int("id", 0, "The address the server listens on in the format addr:port.")
 
 	flag.Parse()
