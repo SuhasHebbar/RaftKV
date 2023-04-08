@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"github.com/golang/protobuf/proto"
@@ -21,6 +22,7 @@ type Persistence struct {
 	StoredVote *pb.StoredVote
 	StoredLogs *pb.StoredLog
 	InitialLogSize int
+	StartTime time.Time
 }
 
 func (p *Persistence) WriteLogToHandle(file *os.File, logs []*pb.LogEntry) int {

@@ -93,6 +93,7 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 	p.StoredVote = vote
 	p.StoredLogs = logs
 	p.InitialLogSize = len(logs.Logs)
+	p.StartTime = time.Now()
 
 	return &Raft{
 		id:    addr,
@@ -220,7 +221,6 @@ type RpcCommand struct {
 
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
 	// r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
-	r.Info("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entries := appendReq.Entries
 

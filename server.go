@@ -31,8 +31,6 @@ func ServerEntryPoint() {
 	logger := slog.New(textHandler)
 	slog.SetDefault(logger)
 
-	Infof("Start timestamp: %v", time.Now().UnixMilli())
-
 	// Debugf("this should print %d", 22)
 	idArg := flag.Int("id", 0, "The address the server listens on in the format addr:port.")
 
