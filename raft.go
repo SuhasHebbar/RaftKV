@@ -10,8 +10,8 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-// const Amp = 50
-const Amp = 1
+const Amp = 50
+// const Amp = 1
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp

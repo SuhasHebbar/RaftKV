@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 	"golang.org/x/exp/slog"
@@ -101,7 +102,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		}
 
 		rs.mu.Lock()
-		Infof("Returning response for %v", op.Operation)
+		// Infof("Returning response for %v", op.Operation)
 		if rs.pendingOps[op.Index] == nil {
 			rs.pendingOps[op.Index] = make(chan *KVResult, 1)
 		}
@@ -309,6 +310,7 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 }
 
 func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResult {
+	start := time.Now()
 	rs.mu.Lock()
 	if rs.pendingOps[index] == nil {
 		rs.pendingOps[index] = make(chan *KVResult, 1)
@@ -320,6 +322,7 @@ func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResu
 	case <-ctx.Done():
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
+		Infof("Operation %v took %v", rs.raft.log[index].Operation, time.Since(start))
 		return result
 	}
 }

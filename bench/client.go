@@ -113,18 +113,21 @@ func GenerateKeys(prng *rand.Rand, numKeys int32, keyLen int32) []string {
     return keys
 }
 
-func getTriggerTimeout() time.Duration {
-    return 10 * time.Millisecond
+func (client *Client) getRandomTimeout(minTimeout, maxTimeout int) time.Duration {
+    return time.Duration((minTimeout +
+        client.prng.Intn(1+maxTimeout-minTimeout)) * int(time.Millisecond),
+    )
 }
+
+const NUM_THREADS = 10
 
 func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
     slog.Info("Starting the random workload with", "writeProp", writeProp, "valLen", valLen)
 
-    triggerTimer := time.After(getTriggerTimeout())
+    for i := 0; i < 10; i++ {
+        for {
+            time.Sleep(client.getRandomTimeout(50, 100))
 
-    for {
-        select {
-        case <- triggerTimer:
             // decide whether to read or write
             if client.prng.Float32() <  writeProp {
                 // pick a random key
@@ -168,10 +171,6 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
                     )
                 }(key, client.leaderId, ctx)
             }
-
-            triggerTimer = time.After(getTriggerTimeout())
-        case leaderId := <- client.leaderIdCh:
-            client.leaderId = leaderId
         }
     }
 }
