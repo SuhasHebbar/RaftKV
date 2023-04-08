@@ -322,7 +322,7 @@ func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResu
 	case <-ctx.Done():
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
-		Infof("Operation %v took %v", rs.raft.log[index].Operation, time.Since(start))
+		Debugf("Operation %v took %v", rs.raft.log[index].Operation, time.Since(start))
 		return result
 	}
 }
