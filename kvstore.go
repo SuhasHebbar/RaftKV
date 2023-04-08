@@ -62,11 +62,10 @@ func (kvs *SimpleKVRpcServer) Get(c context.Context, key *pb.Key) (*pb.Response,
 	defer kvs.lock.Unlock()
 
 	val, err := kvs.kv.Get(key.Key)
-	response := &pb.Response{Response: val, Ok: true}
+	response := &pb.Response{Response: val, Ok: true, IsLeader: true}
 	if err != nil {
 		response.Ok = false
 		response.Response = err.Error()
-
 	}
 
 	return response, nil
@@ -79,6 +78,7 @@ func (kvs *SimpleKVRpcServer) Set(c context.Context, keyValue *pb.KeyValuePair) 
 	kvs.kv.Set(keyValue.Key, keyValue.Value)
 	response := &pb.Response{
 		Ok: true,
+		IsLeader: true,
 	}
 
 	return response, nil
@@ -91,7 +91,7 @@ func (kvs *SimpleKVRpcServer) Delete(c context.Context, key *pb.Key) (*pb.Respon
 
 	err := kvs.kv.Delete(key.Key)
 
-	response := &pb.Response{Ok: true}
+	response := &pb.Response{Ok: true, IsLeader: true}
 	if err != nil {
 		response.Ok = false
 		response.Response = err.Error()
