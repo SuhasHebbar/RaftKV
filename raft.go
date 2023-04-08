@@ -220,7 +220,6 @@ type RpcCommand struct {
 
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
 	// r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
-	r.Info("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entries := appendReq.Entries
 
@@ -336,7 +335,6 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
 	// r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
-	r.Info("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
 	pendingOperation.currentLeader = r.leaderId
 	if r.role != LEADER {
@@ -416,7 +414,6 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 			LeaderCommit: r.commitIndex,
 		}
 		// r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
-		r.Info("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)

@@ -94,6 +94,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		rs.raft.Info("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
 
 		rs.mu.Lock()
+		Infof("")
 		result := &KVResult{}
 		if kvop.Type == pb.OperationType_GET {
 			value, err := rs.kv.Get(kvop.Key)
@@ -112,7 +113,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 			rs.pendingOps[op.Index] <- result
 		}
 		rs.mu.Unlock()
-		// Infof("Returning response for %v", op.Operation)
+		Infof("Returning response for %v", op.Operation)
 
 		if rs.raft.p.InitialLogSize == int(op.Index) {
 			Infof("Startup complete %v", time.Now().UnixMilli())
