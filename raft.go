@@ -176,7 +176,7 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 			if rpcClient == nil {
 				return
 			}
-			r.Debug("Sending vote for term %v to peer %v", savedCurrentTerm, peerId)
+			// r.Debug("Sending vote for term %v to peer %v", savedCurrentTerm, peerId)
 
 			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
 			defer cancel()
@@ -217,7 +217,7 @@ type RpcCommand struct {
 }
 
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
-	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
+	// r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entries := appendReq.Entries
 
@@ -264,7 +264,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		}
 
 		if entriesOffset < len(entries) {
-			r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
+			// r.Debug("Inserting entries to log. %v entries total inserter", len(entries)-entriesOffset)
 			r.log = append(r.log[:logInsertOffset], entries[entriesOffset:]...)
 			// persist log entries
 			r.persistLogs()
@@ -274,7 +274,7 @@ func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRe
 		if appendReq.LeaderCommit > r.commitIndex {
 			oldCommitIndex := r.commitIndex
 			r.commitIndex = min32(appendReq.LeaderCommit, int32(len(r.log)-1))
-			r.Debug("Commit index changing from %v to %v", oldCommitIndex, r.commitIndex)
+			// r.Debug("Commit index changing from %v to %v", oldCommitIndex, r.commitIndex)
 			r.applyRange(oldCommitIndex+1, r.commitIndex)
 		}
 
@@ -325,7 +325,7 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 }
 
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
-	r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
+	// r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
 	pendingOperation.currentLeader = r.leaderId
 	if r.role != LEADER {
@@ -351,7 +351,7 @@ func (r *Raft) handleSubmitOperation(req RpcCommand) {
 }
 
 func (r *Raft) handleRpc(req RpcCommand) {
-	r.Debug("Handling rpc command.")
+	// r.Debug("Handling rpc command.")
 	switch v := req.Command.(type) {
 	case *pb.AppendEntriesRequest:
 		r.handleAppendEntries(req, v)
@@ -401,6 +401,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 			Entries:      entries,
 			LeaderCommit: r.commitIndex,
 		}
+		r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
@@ -411,7 +412,6 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
 			defer cancel()
 
-			r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 			resp, err := client.AppendEntries(ctx, appendReq)
 			if err != nil {
@@ -419,7 +419,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 				return
 			}
 
-			r.Debug("Received AppendEntries response.")
+			// r.Debug("Received AppendEntries response.")
 
 			select {
 			case appendCh.C <- &appendEntriesData{request: appendReq, response: resp, numEntries: int32(numEntries),
@@ -462,13 +462,13 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 	}
 
 	if res.Term > r.currentTerm {
-		r.Debug("currentTerm: %v, newTerm: %v", r.currentTerm, res.Term)
+		// r.Debug("currentTerm: %v, newTerm: %v", r.currentTerm, res.Term)
 		r.becomeFollower(res.Term, res.PeerId)
 		return
 	}
 
 	if res.Success {
-		r.Debug("Got appendEntries reply from %v with old matchIndex: %v, nextIndex: %v", res.PeerId, r.matchIndex[res.PeerId], r.nextIndex[res.PeerId])
+		// r.Debug("Got appendEntries reply from %v with old matchIndex: %v, nextIndex: %v", res.PeerId, r.matchIndex[res.PeerId], r.nextIndex[res.PeerId])
 		newMatchIndex := req.PrevLogIndex + appendDat.numEntries
 		// r.Debug("newMatchIndex: %v", newMatchIndex)
 		if newMatchIndex > r.matchIndex[res.PeerId] {
@@ -476,7 +476,6 @@ func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
 		}
 
 		r.nextIndex[res.PeerId] = newMatchIndex + 1
-		r.Debug("Got appendEntries reply from %v with new matchIndex: %v, nextIndex: %v", res.PeerId, r.matchIndex[res.PeerId], r.nextIndex[res.PeerId])
 		oldCommitIndex := r.commitIndex
 		for i := newMatchIndex; i >= oldCommitIndex && i >= 0; i-- {
 			if r.log[i].Term != r.currentTerm {
@@ -601,8 +600,6 @@ func (r *Raft) runAsLeader() {
 			peerId := appendRes.response.PeerId
 			if leaderContactTimes[peerId].Before(appendRes.heartbeatContactTime) {
 				leaderContactTimes[peerId] = appendRes.heartbeatContactTime
-			} else {
-				r.Debug("append response out of order hc: %v, lc: %v DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDd", appendRes.heartbeatContactTime, leaderContactTimes[peerId])
 			}
 		case <-leaderLeaseTimer:
 			contacted := 0
@@ -624,7 +621,7 @@ func (r *Raft) runAsLeader() {
 			}
 
 			if contacted < r.minimumVotes() {
-				r.Debug("Leader Lease expired contacted: %v.", contacted)
+				// r.Debug("Leader Lease expired contacted: %v.", contacted)
 				r.becomeFollower(r.currentTerm, NIL_PEER)
 				break
 			}
@@ -636,7 +633,7 @@ func (r *Raft) runAsLeader() {
 				nextLeaseTickDuration = 10 * time.Millisecond
 			}
 
-			r.Debug("Next Lease Duration: %v", nextLeaseTickDuration)
+			// r.Debug("Next Lease Duration: %v", nextLeaseTickDuration)
 
 			leaderLeaseTimer = time.After(nextLeaseTickDuration)
 		}
@@ -695,13 +692,13 @@ func (r *Raft) persistVotes() {
 	r.p.StoredVote.Term = r.currentTerm
 	r.p.StoredVote.VotedFor = r.votedFor
 	r.p.WriteVote(r.voteFileName)
-	r.Debug("Persisted Votes")
+	// r.Debug("Persisted Votes")
 }
 
 func (r *Raft) persistLogs() {
 	r.p.StoredLogs.Logs = r.log
 	r.p.WriteLog(r.logFileName)
-	r.Debug("Persisted Logs")
+	// r.Debug("Persisted Logs")
 }
 
 func (r *Raft) runAsFollower() {
@@ -734,7 +731,7 @@ func (r *Raft) runAsFollower() {
 // a single thread of execution using channels.
 func (r *Raft) startServerLoop() {
 	for {
-		r.Debug("Running server loop")
+		// r.Debug("Running server loop")
 		switch r.role {
 		case FOLLOWER:
 			r.runAsFollower()

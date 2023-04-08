@@ -87,8 +87,9 @@ type KVResult struct {
 func (rs *RaftRpcServer) startCommitListerLoop() {
 	for {
 		op := <-rs.raft.commitCh
-		Debugf("Received operation for index %v", op.Index)
 		kvop := op.Operation
+
+		Debugf("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
 
 		rs.mu.Lock()
 		result := &KVResult{}

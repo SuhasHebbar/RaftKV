@@ -16,7 +16,6 @@ type KVStore struct {
 
 func (kv *KVStore) Get(key string) (string, error) {
 	val, hasKey := kv.store[key]
-	Debugf("OPERATION GET: %v = %v", key, hasKey)
 
 	if hasKey {
 		return val, nil
@@ -26,7 +25,6 @@ func (kv *KVStore) Get(key string) (string, error) {
 }
 
 func (kv *KVStore) Set(key, value string) {
-	Debugf("OPERATION SET: %v = %v", key, value)
 	kv.store[key] = value
 }
 
@@ -36,8 +34,6 @@ func (kv *KVStore) Delete(key string) error {
 		return errors.New(NON_EXISTENT_KEY_MSG)
 	}
 
-
-	Debugf("OPERATION DELETE: %v = %v", key, hasKey)
 	delete(kv.store, key)
 	return nil
 }
