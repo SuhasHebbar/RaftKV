@@ -11,7 +11,7 @@ import (
 )
 
 // const Amp = 50
-const Amp = 1
+const Amp = 2
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
