@@ -118,10 +118,10 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 
 		}
 
-		if rs.raft.p.InitialLogSize >= int(op.Index) {
-			Infof("Initial Log Size: %v, index: %v, Startup time %v",
-				rs.raft.p.InitialLogSize, op.Index, time.Since(rs.raft.p.StartTime))
-		}
+		// if rs.raft.p.InitialLogSize >= int(op.Index) {
+		// 	Infof("Initial Log Size: %v, index: %v, Startup time %v",
+		// 		rs.raft.p.InitialLogSize, op.Index, time.Since(rs.raft.p.StartTime))
+		// }
 	}
 
 }
@@ -411,7 +411,7 @@ func (rs *RaftRpcServer) waitForResult(opId string, ctx context.Context) *KVResu
 	case <-ctx.Done():
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
-		rs.raft.Debug("operation took %v", time.Since(start))
+		rs.raft.Info("operation took %v", time.Since(start))
 		return result
 	}
 }

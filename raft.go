@@ -740,7 +740,7 @@ func (r *Raft) runAsFollower() {
 	}()
 
 	for {
-		r.Info("Follower loop")
+		// r.Info("Follower loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
