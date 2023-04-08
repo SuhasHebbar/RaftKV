@@ -660,7 +660,7 @@ func getRandomTimer() <-chan time.Time {
 
 func getLeaderLease() time.Duration {
 	// return time.Duration(10 * time.Millisecond * 10)
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 150)
 }
 
 func getElectionTimeout() time.Duration {
