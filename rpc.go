@@ -113,7 +113,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		rs.mu.Unlock()
 		// Infof("Returning response for %v", op.Operation)
 
-		if rs.raft.p.InitialLogSize == int(op.Index) {
+		if rs.raft.p.InitialLogSize >= int(op.Index) {
 			Infof("Startup time %v", time.Since(rs.raft.p.StartTime))
 		}
 	}
