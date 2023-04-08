@@ -10,7 +10,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 100
+const Amp = 10
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -401,7 +401,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 			Entries:      entries,
 			LeaderCommit: r.commitIndex,
 		}
-		r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
+		// r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
@@ -589,6 +589,7 @@ func (r *Raft) runAsLeader() {
 	leaderContactTimes := map[PeerId]time.Time{}
 
 	for r.role == LEADER {
+		r.Info("Leader loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)

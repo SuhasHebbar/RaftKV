@@ -89,7 +89,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		op := <-rs.raft.commitCh
 		kvop := op.Operation
 
-		Debugf("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
+		rs.raft.Debug("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
 
 		rs.mu.Lock()
 		result := &KVResult{}
