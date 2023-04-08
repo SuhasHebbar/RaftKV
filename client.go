@@ -65,6 +65,8 @@ func ClientEntryPoint() {
 				end := time.Now()
 
 				fmt.Println(ind, " ran for ", end.Sub(start))
+
+				<-time.After(getRandomTimeout(0, 10))
 			}
 		}()
 	}

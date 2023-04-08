@@ -10,11 +10,13 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 10
+const Amp = 2
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
 const MAX_ELECTION_TIMEOUT = 300 * Amp
+
+const BATCH_TIMEOUT = 1 * Amp
 
 const RPC_TIMEOUT = 10 * time.Second * Amp
 
@@ -337,8 +339,8 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 func (r *Raft) handleSubmitOperation(req RpcCommand) {
 	// r.Debug("Handling submit operation for term %v and logIndex: %v", r.currentTerm, len(r.log)-1)
 	var pendingOperation PendingOperation
-	pendingOperation.currentLeader = r.leaderId
 	if r.role != LEADER {
+		pendingOperation.currentLeader = r.leaderId
 		pendingOperation.isLeader = false
 	} else {
 		op, ok := req.Command.(*pb.Operation)
@@ -424,7 +426,6 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 
 			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
 			defer cancel()
-
 
 			resp, err := client.AppendEntries(ctx, appendReq)
 			if err != nil {
@@ -601,11 +602,19 @@ func (r *Raft) runAsLeader() {
 
 	leaderContactTimes := map[PeerId]time.Time{}
 
+	batchTimer := time.After(getBatchTimeout())
+
 	for r.role == LEADER {
-		r.Info("Leader loop")
+		r.Debug("Leader loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
+		case <-batchTimer:
+			batchTimer = time.After(getBatchTimeout())
+			// Send append entries if we have uncommitted entries.
+			if r.commitIndex != int32(len(r.log)-1) {
+				r.broadcastAppendEntries(appendCh)
+			}
 		case <-leaderHeartbeatTimer:
 			leaderHeartbeatTimer = time.After(getLeaderHeartbeatTimeout())
 			r.broadcastAppendEntries(appendCh)
@@ -675,7 +684,7 @@ func (r *Raft) runAsCandidate() {
 	r.persistVotes()
 
 	for r.role == CANDIDATE {
-		r.Info("Candidate loop")
+		r.Debug("Candidate loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
@@ -735,7 +744,7 @@ func (r *Raft) runAsFollower() {
 	}()
 
 	for {
-		r.Info("Follower loop")
+		r.Debug("Follower loop")
 		select {
 		case req := <-r.rpcCh:
 			r.handleRpc(req)
@@ -776,6 +785,10 @@ func getRandomTimer() <-chan time.Time {
 
 func getLeaderHeartbeatTimeout() time.Duration {
 	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
+}
+
+func getBatchTimeout() time.Duration {
+	return time.Duration(BATCH_TIMEOUT * time.Millisecond)
 }
 
 func getLeaderLeaseTimeout() time.Duration {
