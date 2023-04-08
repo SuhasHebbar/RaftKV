@@ -10,7 +10,7 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 50
+const Amp = 100
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -173,6 +173,9 @@ func (r *Raft) broadcastVoteRequest() <-chan *pb.RequestVoteReply {
 		go func() {
 
 			rpcClient := r.rpcHandler.GetClient(peerId)
+			if rpcClient == nil {
+				return
+			}
 			r.Debug("Sending vote for term %v to peer %v", savedCurrentTerm, peerId)
 
 			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
@@ -401,6 +404,9 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
+			if client == nil {
+				return
+			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), RPC_TIMEOUT)
 			defer cancel()

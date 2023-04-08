@@ -115,6 +115,9 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 }
 
 func (rs *RaftRpcServer) GetClient(peerId PeerId) pb.RaftRpcClient {
+	if rs.config.Partitioned {
+		return nil
+	}
 	return rs.clients[peerId]
 }
 
@@ -369,7 +372,9 @@ func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response,
 }
 
 func (rs *RaftRpcServer) waitForResult(index int32, ctx context.Context) *KVResult {
+	rs.mu.Lock()
 	pendingOpsCh := rs.pendingOps[index]
+	rs.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
@@ -391,3 +396,4 @@ func (rs *RaftRpcServer) Partition(ctx context.Context, in *wrappers.BoolValue) 
 	rs.config.Partitioned = in.Value
 	return &empty.Empty{}, nil
 }
+

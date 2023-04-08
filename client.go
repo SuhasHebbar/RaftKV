@@ -56,6 +56,8 @@ func ClientEntryPoint() {
 		command = strings.ToLower(command)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+
+		start := time.Now()
 		if command == "get" {
 			handleGet(arguments, ctx, false)
 		} else if command == "fget" {
@@ -68,6 +70,10 @@ func ClientEntryPoint() {
 		} else {
 			fmt.Println("Invalid operation!")
 		}
+
+		end:= time.Now()
+
+		fmt.Println("Ran for ", end.Sub(start))
 		cancel()
 
 	}
