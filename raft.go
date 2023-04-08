@@ -93,7 +93,6 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 	p.StoredVote = vote
 	p.StoredLogs = logs
 	p.InitialLogSize = len(logs.Logs)
-	Infof("Intiial log size: %v", p.InitialLogSize)
 	p.StartTime = time.Now()
 
 	return &Raft{
@@ -112,8 +111,8 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 		log:         logs.Logs,
 
 		leaderId:   NIL_PEER,
-		rpcCh:      make(chan RpcCommand, 50000),
-		commitCh:   make(chan CommittedOperation, 50000),
+		rpcCh:      make(chan RpcCommand, 100000),
+		commitCh:   make(chan CommittedOperation, 100000),
 		rpcHandler: rpcHandler,
 
 		electionTimeout: -1,
