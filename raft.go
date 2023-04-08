@@ -10,8 +10,8 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-const Amp = 50
-// const Amp = 1
+// const Amp = 50
+const Amp = 1
 
 // Election timeouts in milliseconds
 const MIN_ELECTION_TIMEOUT = 150 * Amp
@@ -660,7 +660,7 @@ func getRandomTimer() <-chan time.Time {
 
 func getLeaderLease() time.Duration {
 	// return time.Duration(10 * time.Millisecond * 10)
-	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 150)
+	return time.Duration(MIN_ELECTION_TIMEOUT * time.Millisecond / 3)
 }
 
 func getElectionTimeout() time.Duration {
