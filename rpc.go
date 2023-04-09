@@ -118,7 +118,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 
 		}
 
-		if rs.raft.p.InitialLogSize >= int(op.Index) {
+		if rs.raft.role == LEADER && rs.raft.p.InitialLogSize >= int(op.Index) {
 			Infof("Initial Log Size: %v, index: %v, Startup time %v",
 				rs.raft.p.InitialLogSize, op.Index, time.Since(rs.raft.p.StartTime))
 		}
