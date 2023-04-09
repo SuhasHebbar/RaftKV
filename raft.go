@@ -313,16 +313,18 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		PeerId:      r.id,
 	}
 
+
+	if r.role != LEADER && time.Now().Sub(r.electionTimerStart) < time.Duration(MIN_ELECTION_TIMEOUT*time.Millisecond) {
+		r.Info("Reject request vote since leader read lease may still be held")
+		req.resp <- voteRes
+		return
+	}
+
 	if voteReq.Term > r.currentTerm {
 		r.Debug("Becoming follower. term out of date")
 		r.becomeFollower(voteReq.Term)
 	}
 
-	if r.role == FOLLOWER && time.Now().Sub(r.electionTimerStart) < time.Duration(MIN_ELECTION_TIMEOUT*time.Millisecond) {
-		r.Debug("Reject request vote since leader read lease may still be held")
-		req.resp <- voteRes
-		return
-	}
 
 
 	lastLogIndex, lastLogTerm := r.lastLogDetails()
@@ -482,9 +484,6 @@ func (r *Raft) becomeFollower(term int32) {
 	r.votedFor = -1
 	// persist votedFor and term
 	r.persistVotes()
-
-	r.electionTimerStart = time.Now()
-
 }
 
 func (r *Raft) handleAppendEntriesResponse(appendDat *appendEntriesData) {
