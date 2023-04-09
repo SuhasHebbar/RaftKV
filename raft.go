@@ -95,8 +95,6 @@ func NewRaft(addr PeerId, peers map[PeerId]Empty, rpcHandler RpcServer) *Raft {
 
 	p.StoredVote = vote
 	p.StoredLogs = logs
-	p.InitialLogSize = len(logs.Logs)
-	p.StartTime = time.Now()
 
 	return &Raft{
 		id:    addr,
@@ -568,6 +566,9 @@ func (r *Raft) applyRange(a, b int32) {
 // }
 
 func (r *Raft) runAsLeader() {
+	// to compute time it takes to apply the current log
+	r.p.InitialLogSize = len(r.p.StoredLogs.Logs)
+	r.p.StartTime = time.Now()
 	r.Debug("Running as leader for term %v.", r.currentTerm)
 
 	r.nextIndex = map[PeerId]int32{}
