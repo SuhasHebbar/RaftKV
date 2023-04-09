@@ -18,6 +18,9 @@ func main() {
 			fmt.Printf("Error while reading log file err: %v\n", err1)
 		} else {
 			for i, logentry := range log.Logs {
+				if logentry.GetOperation().GetType() == pb.OperationType_NOOP {
+					continue
+				}
 				fmt.Printf("Index: %v, Term: %v, Operation: %v\n", i, logentry.Term, logentry.Operation)
 			}
 		}

@@ -134,7 +134,7 @@ func (r *Raft) minimumVotes() int {
 }
 
 func (r *Raft) Debug(msg string, args ...any) {
-	Debugf("NODE: "+strconv.Itoa(int(r.id))+": "+msg, args...)
+	Debugf("Server id "+strconv.Itoa(int(r.id))+": "+msg, args...)
 }
 
 func (r *Raft) Info(msg string, args ...any) {
@@ -313,7 +313,6 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		PeerId:      r.id,
 	}
 
-
 	if r.role != LEADER && time.Now().Sub(r.electionTimerStart) < time.Duration(MIN_ELECTION_TIMEOUT*time.Millisecond) {
 		r.Info("Reject request vote since leader read lease may still be held")
 		req.resp <- voteRes
@@ -324,8 +323,6 @@ func (r *Raft) handleRequestVoteRequest(req RpcCommand, voteReq *pb.RequestVoteR
 		r.Debug("Becoming follower. term out of date")
 		r.becomeFollower(voteReq.Term)
 	}
-
-
 
 	lastLogIndex, lastLogTerm := r.lastLogDetails()
 

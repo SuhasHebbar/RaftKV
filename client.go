@@ -23,10 +23,10 @@ type SimpleClient struct {
 
 func NewSimpleClient() *SimpleClient {
 
-	c := SimpleClient{clients: map[int32]pb.RaftRpcClient{}}
+	c := SimpleClient{Clients: map[int32]pb.RaftRpcClient{}}
 	config := GetConfig()
-	c.config = &config
-	for k, url := range c.config.Peers {
+	c.Config = &config
+	for k, url := range c.Config.Peers {
 		opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 		conn, err := grpc.Dial(url, opts...)
@@ -36,7 +36,7 @@ func NewSimpleClient() *SimpleClient {
 		}
 
 		client := pb.NewRaftRpcClient(conn)
-		c.clients[k] = client
+		c.Clients[k] = client
 
 	}
 
@@ -93,13 +93,13 @@ func ClientEntryPoint() {
 
 		start := time.Now()
 		if command == "get" {
-			c.handleGet(arguments, false)
+			c.HandleGet(arguments, false, []int{}, false)
 		} else if command == "fget" {
-			c.handleGet(arguments, true)
+			c.HandleGet(arguments, true, []int{}, false)
 		} else if command == "set" {
-			c.handleSet(arguments)
+			c.HandleSet(arguments, []int{}, false)
 		} else if command == "delete" {
-			c.handleDelete(arguments)
+			c.handleDelete(arguments, []int{})
 
 		} else {
 			fmt.Println("Invalid operation!")
@@ -112,22 +112,25 @@ func ClientEntryPoint() {
 	}
 }
 
-func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
+func (c *SimpleClient) HandleGet(keystr string, skipQuorum bool, partitionedIds []int, isPartitionedServer bool) {
 	key := pb.Key{Key: keystr}
 	var response *pb.Response
 	var err error
 	for i := 0; i < len(c.config.Peers); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
-
-		clientId := (c.leaderId + i) % len(c.config.Peers)
 		fmt.Println("Trying leaderId", clientId)
 		if skipQuorum {
-			response, err = c.clients[int32(clientId)].FastGet(ctx, &key)
+			response, err = c.Clients[int32(clientId)].FastGet(ctx, &key)
 		} else {
-			response, err = c.clients[int32(clientId)].Get(ctx, &key)
+			response, err = c.Clients[int32(clientId)].Get(ctx, &key)
 		}
-		Debugf("response %v, err %v", response, err)
+		fmt.Printf("response %v, err %v\n", response, err)
+
+		if isPartitionedServer {
+			c.LeaderId = (c.LeaderId + 1) % len(c.Config.Peers)
+			break
+		}
 
 		if response == nil {
 			continue
@@ -136,7 +139,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 	if err != nil || (response != nil && !response.IsLeader) {
@@ -146,7 +149,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 	}
 
 	if response.Ok {
-		fmt.Println(response.Response)
+		//fmt.Println(response.Response)
 	} else {
 		if response.Response == NON_EXISTENT_KEY_MSG {
 			fmt.Println("<Value does not exist>")
@@ -157,7 +160,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 	}
 }
 
-func (c *SimpleClient) handleSet(arguments string) {
+func (c *SimpleClient) HandleSet(arguments string, partitionedIds []int, isPartitionedServer bool) {
 	key, value, valid := strings.Cut(arguments, " ")
 	if !valid {
 		fmt.Println("Something went wrong")
@@ -172,18 +175,24 @@ func (c *SimpleClient) handleSet(arguments string) {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
-		clientId := (c.leaderId + i) % len(c.config.Peers)
 		fmt.Println("Trying leaderId", clientId)
-		response, err = c.clients[int32(clientId)].Set(ctx, &kvPair)
-		Debugf("response %v, err %v", response, err)
+		response, err = c.Clients[int32(clientId)].Set(ctx, &kvPair)
+		fmt.Printf("response %v, err %v\n", response, err)
+
+		if isPartitionedServer {
+			c.LeaderId = (c.LeaderId + 1) % len(c.Config.Peers)
+			break
+		}
+
 		if response == nil {
 			continue
 		}
 		if !response.IsLeader {
+			fmt.Println("not leader..")
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 
@@ -196,7 +205,7 @@ func (c *SimpleClient) handleSet(arguments string) {
 
 }
 
-func (c *SimpleClient) handleDelete(arguments string) {
+func (c *SimpleClient) handleDelete(arguments string, partitionedIds []int) {
 	key := pb.Key{Key: arguments}
 
 	var response *pb.Response
@@ -205,9 +214,17 @@ func (c *SimpleClient) handleDelete(arguments string) {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
-		clientId := (c.leaderId + i) % len(c.config.Peers)
+		clientId := (c.LeaderId + i) % len(c.Config.Peers)
+
+		for _, partitionedId := range partitionedIds {
+			if clientId == partitionedId {
+				ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+				break
+			}
+		}
+
 		fmt.Println("Trying leaderId", clientId)
-		response, err = c.clients[int32(c.leaderId)].Delete(ctx, &key)
+		response, err = c.Clients[int32(c.LeaderId)].Delete(ctx, &key)
 		Debugf("response %v, err %v", response, err)
 
 		if response == nil {
@@ -217,7 +234,7 @@ func (c *SimpleClient) handleDelete(arguments string) {
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 

@@ -123,6 +123,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 
 func (rs *RaftRpcServer) GetClient(peerId PeerId) pb.RaftRpcClient {
 	if rs.config.Partitioned {
+		//Debugf("Still partitioned")
 		return nil
 	}
 	return rs.clients[peerId]
@@ -198,14 +199,6 @@ func (rs *RaftRpcServer) scheduleRpcCommand(ctx context.Context, cmd RpcCommand)
 func (rs *RaftRpcServer) FastGet(ctx context.Context, key *pb.Key) (*pb.Response, error) {
 	resp := &pb.Response{}
 
-	if rs.config.Partitioned {
-		<-ctx.Done()
-		resp.Ok = false
-		resp.Response = SIMULATED_PARTITION
-
-		return resp, nil
-	}
-
 	op := &pb.Operation{
 		Type: pb.OperationType_FAST_GET,
 		Key:  key.Key,
@@ -250,14 +243,6 @@ func (rs *RaftRpcServer) FastGet(ctx context.Context, key *pb.Key) (*pb.Response
 func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, error) {
 	resp := &pb.Response{}
 
-	if rs.config.Partitioned {
-		<-ctx.Done()
-		resp.Ok = false
-		resp.Response = SIMULATED_PARTITION
-
-		return resp, nil
-	}
-
 	op := &pb.Operation{
 		Type: pb.OperationType_GET,
 		Key:  key.Key,
@@ -298,14 +283,6 @@ func (rs *RaftRpcServer) Get(ctx context.Context, key *pb.Key) (*pb.Response, er
 
 func (rs *RaftRpcServer) Set(ctx context.Context, kvp *pb.KeyValuePair) (*pb.Response, error) {
 	resp := &pb.Response{}
-
-	if rs.config.Partitioned {
-		<-ctx.Done()
-		resp.Ok = false
-		resp.Response = SIMULATED_PARTITION
-
-		return resp, nil
-	}
 
 	op := &pb.Operation{
 		Type:  pb.OperationType_SET,
@@ -351,13 +328,6 @@ func (rs *RaftRpcServer) ClearPendingOp(opId string) {
 
 func (rs *RaftRpcServer) Delete(ctx context.Context, key *pb.Key) (*pb.Response, error) {
 	resp := &pb.Response{}
-	if rs.config.Partitioned {
-		<-ctx.Done()
-		resp.Ok = false
-		resp.Response = SIMULATED_PARTITION
-
-		return resp, nil
-	}
 
 	op := &pb.Operation{
 		Type: pb.OperationType_DELETE,
@@ -413,5 +383,8 @@ func (rs *RaftRpcServer) waitForResult(opId string, ctx context.Context) *KVResu
 
 func (rs *RaftRpcServer) Partition(ctx context.Context, in *wrappers.BoolValue) (*empty.Empty, error) {
 	rs.config.Partitioned = in.Value
+	if rs.config.Partitioned {
+		rs.raft.Debug("Started simulating partition")
+	}
 	return &empty.Empty{}, nil
 }
