@@ -54,67 +54,66 @@ func ClientEntryPoint() {
 	logger := slog.New(textHandler)
 	slog.SetDefault(logger)
 
-	for i := 0; i < 10; i++ {
-		ind := i
-		go func() {
-			c := NewSimpleClient()
-			c.handleSet("hello world")
-			for {
-				start := time.Now()
-				c.handleGet("hello", false)
-				end := time.Now()
-
-				fmt.Println(ind, " ran for ", end.Sub(start))
-
-				<-time.After(getRandomTimeout(0, 10))
-			}
-		}()
-	}
-
-
+	// for i := 0; i < 10; i++ {
+	// 	ind := i
+	// 	go func() {
+	// 		c := NewSimpleClient()
+	// 		c.handleSet("hello world")
+	// 		for {
+	// 			start := time.Now()
+	// 			c.handleGet("hello", false)
+	// 			end := time.Now()
+	//
+	// 			fmt.Println(ind, " ran for ", end.Sub(start))
+	//
+	// 			<-time.After(getRandomTimeout(0, 10))
+	// 		}
+	// 	}()
+	// }
+	//
+	//
+	//
+	// reader := bufio.NewReader(os.Stdin)
+	//
+	// reader.ReadString('\n')
 
 	reader := bufio.NewReader(os.Stdin)
+	c := NewSimpleClient()
+	for {
+		fmt.Printf("> ")
+		inputLine, _ := reader.ReadString('\n')
+		inputLine = strings.Replace(inputLine, "\n", "", -1)
+		command, arguments, _ := strings.Cut(inputLine, " ")
+		if arguments == "" {
+			fmt.Println("Invalid operation!")
+			continue
+		}
 
-	reader.ReadString('\n')
+		command = strings.ToLower(command)
 
-	// reader := bufio.NewReader(os.Stdin)
-	// c := NewSimpleClient()
-	// for {
-	// 	fmt.Printf("> ")
-	// 	inputLine, _ := reader.ReadString('\n')
-	// 	inputLine = strings.Replace(inputLine, "\n", "", -1)
-	// 	command, arguments, _ := strings.Cut(inputLine, " ")
-	// 	if arguments == "" {
-	// 		fmt.Println("Invalid operation!")
-	// 		continue
-	// 	}
-	//
-	// 	command = strings.ToLower(command)
-	//
-	// 	start := time.Now()
-	// 	if command == "get" {
-	// 		c.handleGet(arguments, false)
-	// 	} else if command == "fget" {
-	// 		c.handleGet(arguments, true)
-	// 	} else if command == "set" {
-	// 		c.handleSet(arguments)
-	// 	} else if command == "delete" {
-	// 		c.handleDelete(arguments)
-	//
-	// 	} else {
-	// 		fmt.Println("Invalid operation!")
-	// 	}
-	//
-	// 	end := time.Now()
-	//
-	// 	fmt.Println("Ran for ", end.Sub(start))
-	//
-	// }
+		start := time.Now()
+		if command == "get" {
+			c.handleGet(arguments, false)
+		} else if command == "fget" {
+			c.handleGet(arguments, true)
+		} else if command == "set" {
+			c.handleSet(arguments)
+		} else if command == "delete" {
+			c.handleDelete(arguments)
+
+		} else {
+			fmt.Println("Invalid operation!")
+		}
+
+		end := time.Now()
+
+		fmt.Println("Ran for ", end.Sub(start))
+
+	}
 }
 
 func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 	key := pb.Key{Key: keystr}
-	fmt.Println(keystr)
 	var response *pb.Response
 	var err error
 	for i := 0; i < len(c.config.Peers); i++ {

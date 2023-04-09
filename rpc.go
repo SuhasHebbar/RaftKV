@@ -92,7 +92,7 @@ func (rs *RaftRpcServer) startCommitListerLoop() {
 		op := <-rs.raft.commitCh
 		kvop := op.Operation
 
-		rs.raft.Debug("Committing and applying operation. index: %v, operation: %v", op.Index, op.Operation)
+		rs.raft.Info("Applying operation. index: %v, operation: %v", op.Index, op.Operation)
 
 		rs.mu.Lock()
 		result := &KVResult{}
@@ -406,7 +406,7 @@ func (rs *RaftRpcServer) waitForResult(opId string, ctx context.Context) *KVResu
 	case <-ctx.Done():
 		return &KVResult{Err: errors.New("Deadline exceeded")}
 	case result := <-pendingOpsCh:
-		rs.raft.Info("operation took %v", time.Since(start))
+		rs.raft.Debug("operation took %v", time.Since(start))
 		return result
 	}
 }
