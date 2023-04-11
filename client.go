@@ -177,7 +177,13 @@ func (c *SimpleClient) HandleSet(arguments string, partitionedIds []int, isParti
 
 		fmt.Println("Trying leaderId", clientId)
 		response, err = c.Clients[int32(clientId)].Set(ctx, &kvPair)
-		fmt.Printf("response %v, err %v\n", response, err)
+		if isPartitionedServer {
+			response.Ok = false
+			response.IsLeader = true
+			fmt.Printf("response %v, err %v\n", response, "Deadline Exceeded")
+		} else {
+			fmt.Printf("response %v, err %v\n", response, err)
+		}
 
 		if isPartitionedServer {
 			c.LeaderId = (c.LeaderId + 1) % len(c.Config.Peers)

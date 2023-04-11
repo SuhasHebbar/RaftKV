@@ -14,19 +14,19 @@ func main() {
 }
 
 func testSingleThreadConsistency() {
-	arguments := "1 2"
+	arguments := "a 2"
 	fmt.Println("Sending Request: Set ", arguments)
 	c.HandleSet(arguments, []int{}, false)
 
-	arguments = "1 3"
+	arguments = "a 3"
 	fmt.Println("Sending Request: Set ", arguments)
 	c.HandleSet(arguments, []int{}, false)
 
-	arguments = "1"
+	arguments = "a"
 	fmt.Println("Sending Get Request: Get ", arguments)
 	c.HandleGet(arguments, true, []int{}, false)
 
-	arguments = "1"
+	arguments = "a"
 	fmt.Println("Sending Get Request: Get ", arguments)
 	c.HandleGet(arguments, true, []int{}, false)
 }

@@ -26,25 +26,25 @@ func testMultiThreadConsistency() {
 
 	wg.Wait()
 
-	arguments := "1"
+	arguments := "a"
 	fmt.Println("Sending Get Request: Get ", arguments)
 	c.HandleGet(arguments, true, []int{}, false)
 
-	arguments = "1"
+	arguments = "a"
 	fmt.Println("Sending Get Request: Get ", arguments)
 	c.HandleGet(arguments, true, []int{}, false)
 }
 
 func firstThread(wg *sync.WaitGroup) {
 	defer wg.Done()
-	arguments := "1 2"
+	arguments := "a 2"
 	fmt.Println("Sending Request from thread 1: Set ", arguments)
 	c.HandleSet(arguments, []int{}, false)
 }
 
 func secondThread(wg *sync.WaitGroup) {
 	defer wg.Done()
-	arguments := "1 3"
+	arguments := "a 3"
 	fmt.Println("Sending Request: from thread 2: Set ", arguments)
 	c.HandleSet(arguments, []int{}, false)
 

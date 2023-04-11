@@ -221,7 +221,7 @@ type RpcCommand struct {
 }
 
 func (r *Raft) handleAppendEntries(req RpcCommand, appendReq *pb.AppendEntriesRequest) {
-	// r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderCommit, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
+	r.Debug("Received AppendEntries: term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 	entries := appendReq.Entries
 
@@ -424,7 +424,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 			Entries:      entries,
 			LeaderCommit: r.commitIndex,
 		}
-		// r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
+		r.Debug("Sending append for term: %v, leaderId: %v, prevLogIndex: %v, prevLogTerm: %v, leaderCommit: %v", appendReq.Term, appendReq.LeaderId, appendReq.PrevLogIndex, appendReq.PrevLogTerm, appendReq.LeaderCommit)
 
 		go func() {
 			client := r.rpcHandler.GetClient(peerId)
@@ -437,7 +437,7 @@ func (r *Raft) broadcastAppendEntries(appendCh safeN1Channel) time.Time {
 
 			resp, err := client.AppendEntries(ctx, appendReq)
 			if err != nil {
-				r.Debug("Failed to send AppendEntries for term: %v, prevLogIndex: %v, prevLogTerm: %v, commitIndex: %v, err: %v", savedCurrentTerm, prevLogIndex, prevLogTerm, appendReq.LeaderCommit, err)
+				//r.Debug("Failed to send AppendEntries for term: %v, prevLogIndex: %v, prevLogTerm: %v, commitIndex: %v, err: %v", savedCurrentTerm, prevLogIndex, prevLogTerm, appendReq.LeaderCommit, err)
 				return
 			}
 
