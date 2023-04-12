@@ -30,9 +30,8 @@ if [[ "" == "$(which go)" ]]; then
   asdf global golang 1.20.2
 fi
 
-
 sudo apt update >> /dev/null
-sudo apt install -y htop python-is-python3 python3-plumbum nodejs hyperfine ripgrep trash-cli asciinema libfuse2 protobuf-compiler
+sudo apt install -y htop python-is-python3 python3-plumbum nodejs hyperfine ripgrep trash-cli asciinema libfuse2
 
 if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
 	echo Adding \$HOME/bin to path
@@ -59,11 +58,10 @@ if [[ "" == "$(ls -ald suhas/$proj_name)" ]]; then
 
 fi
 
-if [[ ":$PATH:" != *":$(go env GOPATH)/bin:"* ]]; then
-	gopath=$(go env GOPATH)
-
-	echo "export PATH=$gopath/bin:\$PATH" >> ~/.bashrc
-	export PATH=$gopath/bin:$PATH
+if [[ ":$PATH:" != *":$HOME/go/bin:"* ]]; then
+	echo Adding \$HOME/go/	echo Adding \$HOME/bin to pathbin to path
+	mkdir -p ~/go/bin
+	echo "export PATH=\$HOME/go/bin:\$PATH" >> ~/.bashrc
 fi
 
 if [[ "" == "$(which protoc-gen-go)" || "" == "$(which protoc-gen-go-grpc)" ]]; then
@@ -77,13 +75,12 @@ if [[ "" == "$(which nvim)" ]]; then
 	chmod u+x ~/bin/nvim
 fi
 
-mkdir -p ~/.config
-
 rm -rf ~/.config/nvim
 rm -rf ~/hebbar2_config
+mkdir -p ~/.config
 
 git clone https://github.com/SuhasHebbar/config hebbar2_config
-ln -s ~/hebbar2_config/nvim ~/.config/nvim
+ln -sf ~/hebbar2_config/nvim ~/.config/nvim
 
 git config --global user.name "Group 1"
 git config --global user.email "group1@not_a_real_email.com"
