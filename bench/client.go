@@ -39,8 +39,16 @@ type Client struct {
 func NewClient(config *Config, prng *rand.Rand, zlog *zap.Logger) *Client {
     slog.Info("Creating new client ...")
 
+    replicas := func() []string {
+        if config.ConnectSimpleServer {
+            return []string{"10.10.1.3:8007"}
+        } else {
+            return config.Replicas
+        }
+    }()
+
     return &Client{
-        replicas: ConnectReplicas(config.Replicas),
+        replicas: ConnectReplicas(replicas),
         keys: GenerateKeys(prng, config.NumKeys, config.KeyLen),
         leaderId: 0,
         prng: prng,
@@ -120,10 +128,10 @@ func (client *Client) getRandomTimeout(minTimeout, maxTimeout int) time.Duration
 }
 
 func getTriggerTimeout() time.Duration {
-    return 2300 * time.Microsecond
+    return 5 * time.Millisecond
 }
 
-func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx context.Context) {
+func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, enableFastGet bool, ctx context.Context) {
     slog.Info("Starting the random workload with", "writeProp", writeProp, "valLen", valLen)
 
     triggerTimerCh := time.After(getTriggerTimeout())
@@ -164,7 +172,7 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
                     start := time.Now()
 
                     // kv operation
-                    client.Get(key, leaderId, ctx)
+                    client.Get(key, enableFastGet, leaderId, ctx)
 
                     // compute latency
                     client.zlog.Info("GET",
@@ -352,7 +360,7 @@ func (client *Client) RunRandomWorkload(writeProp float32, valLen int32, ctx con
 //     }
 // }
 
-func (client *Client) Get(keystr string, leaderId int, ctx context.Context) {
+func (client *Client) Get(keystr string, enableFastGet bool, leaderId int, ctx context.Context) {
     key := pb.Key{Key: keystr}
 
     var response *pb.Response
@@ -361,7 +369,11 @@ func (client *Client) Get(keystr string, leaderId int, ctx context.Context) {
     for i := 0; i < len(client.replicas); i++ {
         clientId := (leaderId + i) % len(client.replicas)
         // fmt.Println("Trying leaderId", clientId)
-        response, err = client.replicas[int32(clientId)].Get(ctx, &key)
+        if enableFastGet {
+            response, err = client.replicas[int32(clientId)].FastGet(ctx, &key)
+        } else {
+            response, err = client.replicas[int32(clientId)].Get(ctx, &key)
+        }
         // Debugf("response %v, err %v", response, err)
 
         if response == nil {

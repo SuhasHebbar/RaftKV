@@ -30,6 +30,12 @@ type Config struct {
 
     // Populate all the keys in the domain to avoid read failures
     PopulateAllKeys bool `mapstructure:"populate_all_keys"`
+
+    // toggle fast get
+    EnableFastGet bool `mapstructure:"enable_fast_get"`
+
+    // simple server client
+    ConnectSimpleServer bool `mapstructure:"connect_simple_server"`
 }
 
 const (
@@ -48,6 +54,8 @@ func GetConfig(confname string) *Config {
     viper.SetDefault("key_len", 8)
     viper.SetDefault("val_len", 8)
     viper.SetDefault("populate_all_keys", true)
+    viper.SetDefault("enable_fast_get", false)
+    viper.SetDefault("connect_simple_server", false)
 
     viper.SetConfigName(confname) // config filename
     viper.SetConfigType("yaml") // yaml config

@@ -16,3 +16,9 @@ write_prop: 0.5
 # Contiguous range of keys to scan
 # Applicable only in mode read_range
 range_scan_num_keys: 8
+
+# Quick GET
+# enable_fast_get: True
+
+# Connect to simple server
+# connect_simple_server: True

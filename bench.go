@@ -59,7 +59,7 @@ func BenchEntryPoint() {
     // run the workload
     switch strings.ToLower(config.Mode) {
         case bench.RANDOM:
-            client.RunRandomWorkload(config.WriteProp, config.ValLen, context.Background())
+            client.RunRandomWorkload(config.WriteProp, config.ValLen, config.EnableFastGet, context.Background())
         // case bench.READ_RECENT:
         //     client.RunReadRecentWorkload(config.WriteProp, config.ValLen, context.Background())
         // case bench.READ_MODIFY_UPDATE:
