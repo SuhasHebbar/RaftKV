@@ -112,7 +112,6 @@ func (p *Persistence) WriteVote(filename string) {
 		panic(err)
 	}
 
-
 	_, err = tmpfile.Write(buf)
 	if err != nil {
 		Debugf("tmpfilewrite %v", err)
@@ -139,9 +138,6 @@ func (p *Persistence) AppendLog(filename string, logs []*pb.LogEntry) {
 
 	bytesAdded := p.WriteLogToHandle(file, logs)
 	Debugf("Appending %v log bytes", bytesAdded)
-
-
-
 
 }
 

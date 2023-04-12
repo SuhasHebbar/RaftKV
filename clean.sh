@@ -1,3 +1,3 @@
-rm -rf raftLog_*
-rm -rf raftVote_*
-rm -rf Log.txt
+rm -rf raftlogs*
+rm -rf raftvotes*
+rm -rf serverlogs.txt
