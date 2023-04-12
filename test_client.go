@@ -1,10 +1,8 @@
 package kv
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -14,19 +12,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-type SimpleClient struct {
-	leaderId int
-	clients  map[int32]pb.RaftRpcClient
-	config   *Config
+type TestClient struct {
+	LeaderId int
+	Clients  map[int32]pb.RaftRpcClient
+	Config   *Config
 	deadline time.Duration
 }
 
-func NewSimpleClient() *SimpleClient {
+func NewTestClient() *TestClient {
 
-	c := SimpleClient{clients: map[int32]pb.RaftRpcClient{}}
+	c := TestClient{Clients: map[int32]pb.RaftRpcClient{}}
 	config := GetConfig()
-	c.config = &config
-	for k, url := range c.config.Peers {
+	c.Config = &config
+	for k, url := range c.Config.Peers {
 		opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 		conn, err := grpc.Dial(url, opts...)
@@ -36,7 +34,7 @@ func NewSimpleClient() *SimpleClient {
 		}
 
 		client := pb.NewRaftRpcClient(conn)
-		c.clients[k] = client
+		c.Clients[k] = client
 
 	}
 
@@ -45,87 +43,20 @@ func NewSimpleClient() *SimpleClient {
 	return &c
 }
 
-func ClientEntryPoint() {
-	opts := slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}
-
-	textHandler := opts.NewTextHandler(os.Stdout)
-	logger := slog.New(textHandler)
-	slog.SetDefault(logger)
-
-	// for i := 0; i < 10; i++ {
-	// 	ind := i
-	// 	go func() {
-	// 		c := NewSimpleClient()
-	// 		c.handleSet("hello world")
-	// 		for {
-	// 			start := time.Now()
-	// 			c.handleGet("hello", false)
-	// 			end := time.Now()
-	//
-	// 			fmt.Println(ind, " ran for ", end.Sub(start))
-	//
-	// 			<-time.After(getRandomTimeout(0, 10))
-	// 		}
-	// 	}()
-	// }
-	//
-	//
-	//
-	// reader := bufio.NewReader(os.Stdin)
-	//
-	// reader.ReadString('\n')
-
-	reader := bufio.NewReader(os.Stdin)
-	c := NewSimpleClient()
-	for {
-		fmt.Printf("> ")
-		inputLine, _ := reader.ReadString('\n')
-		inputLine = strings.Replace(inputLine, "\n", "", -1)
-		command, arguments, _ := strings.Cut(inputLine, " ")
-		if arguments == "" {
-			fmt.Println("Invalid operation!")
-			continue
-		}
-
-		command = strings.ToLower(command)
-
-		start := time.Now()
-		if command == "get" {
-			c.handleGet(arguments, false)
-		} else if command == "fget" {
-			c.handleGet(arguments, true)
-		} else if command == "set" {
-			c.handleSet(arguments)
-		} else if command == "delete" {
-			c.handleDelete(arguments)
-
-		} else {
-			fmt.Println("Invalid operation!")
-		}
-
-		end := time.Now()
-
-		fmt.Println("Ran for ", end.Sub(start))
-
-	}
-}
-
-func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
+func (c *TestClient) HandleGet(keystr string, skipQuorum bool, partitionedIds []int, isPartitionedServer bool) {
 	key := pb.Key{Key: keystr}
 	var response *pb.Response
 	var err error
-	for i := 0; i < len(c.config.Peers); i++ {
+	for i := 0; i < len(c.Config.Peers); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
-		clientId := (c.leaderId + i) % len(c.config.Peers)
+		clientId := (c.LeaderId + i) % len(c.Config.Peers)
 		fmt.Println("Trying leaderId", clientId)
 		if skipQuorum {
-			response, err = c.clients[int32(clientId)].FastGet(ctx, &key)
+			response, err = c.Clients[int32(clientId)].FastGet(ctx, &key)
 		} else {
-			response, err = c.clients[int32(clientId)].Get(ctx, &key)
+			response, err = c.Clients[int32(clientId)].Get(ctx, &key)
 		}
 		Debugf("response %v, err %v", response, err)
 
@@ -136,7 +67,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 	if err != nil || (response != nil && !response.IsLeader) {
@@ -157,7 +88,7 @@ func (c *SimpleClient) handleGet(keystr string, skipQuorum bool) {
 	}
 }
 
-func (c *SimpleClient) handleSet(arguments string) {
+func (c *TestClient) HandleSet(arguments string, partitionedIds []int, isPartitionedServer bool) {
 	key, value, valid := strings.Cut(arguments, " ")
 	if !valid {
 		fmt.Println("Something went wrong")
@@ -168,13 +99,13 @@ func (c *SimpleClient) handleSet(arguments string) {
 
 	var response *pb.Response
 	var err error
-	for i := 0; i < len(c.config.Peers); i++ {
+	for i := 0; i < len(c.Config.Peers); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
-		clientId := (c.leaderId + i) % len(c.config.Peers)
+		clientId := (c.LeaderId + i) % len(c.Config.Peers)
 		fmt.Println("Trying leaderId", clientId)
-		response, err = c.clients[int32(clientId)].Set(ctx, &kvPair)
+		response, err = c.Clients[int32(clientId)].Set(ctx, &kvPair)
 		Debugf("response %v, err %v", response, err)
 		if response == nil {
 			continue
@@ -183,7 +114,7 @@ func (c *SimpleClient) handleSet(arguments string) {
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 
@@ -196,18 +127,18 @@ func (c *SimpleClient) handleSet(arguments string) {
 
 }
 
-func (c *SimpleClient) handleDelete(arguments string) {
+func (c *TestClient) HandleDelete(arguments string, partitionedIds []int) {
 	key := pb.Key{Key: arguments}
 
 	var response *pb.Response
 	var err error
-	for i := 0; i < len(c.config.Peers); i++ {
+	for i := 0; i < len(c.Config.Peers); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), c.deadline)
 		defer cancel()
 
-		clientId := (c.leaderId + i) % len(c.config.Peers)
+		clientId := (c.LeaderId + i) % len(c.Config.Peers)
 		fmt.Println("Trying leaderId", clientId)
-		response, err = c.clients[int32(c.leaderId)].Delete(ctx, &key)
+		response, err = c.Clients[int32(c.LeaderId)].Delete(ctx, &key)
 		Debugf("response %v, err %v", response, err)
 
 		if response == nil {
@@ -217,7 +148,7 @@ func (c *SimpleClient) handleDelete(arguments string) {
 			continue
 		}
 
-		c.leaderId = clientId
+		c.LeaderId = clientId
 		break
 	}
 

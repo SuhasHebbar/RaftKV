@@ -7,10 +7,10 @@ import (
 	kv "github.com/SuhasHebbar/CS739-P2"
 )
 
-var c *kv.SimpleClient
+var c *kv.TestClient
 
 func main() {
-	c = kv.NewSimpleClient()
+	c = kv.NewTestClient()
 	testMultiThreadConsistency()
 }
 

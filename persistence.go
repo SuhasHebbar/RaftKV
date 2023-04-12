@@ -81,7 +81,7 @@ func (p *Persistence) WriteLog(filename string) {
 
 	tmpfileName := tmpfile.Name()
 
-	_ = p.WriteLogToHandle(tmpfile, p.StoredLogs.Logs)
+	totalSizePersisted := p.WriteLogToHandle(tmpfile, p.StoredLogs.Logs)
 
 	tmpfile.Close()
 
@@ -133,8 +133,8 @@ func (p *Persistence) AppendLog(filename string, logs []*pb.LogEntry) {
 		panic(err)
 	}
 
-	_ = p.WriteLogToHandle(file, logs)
-	//Debugf("Appending %v log bytes", bytesAdded)
+	bytesAdded := p.WriteLogToHandle(file, logs)
+	Debugf("Appending %v log bytes", bytesAdded)
 
 }
 

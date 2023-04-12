@@ -11,10 +11,10 @@ import (
 	pb "github.com/SuhasHebbar/CS739-P2/proto"
 )
 
-var c *kv.SimpleClient
+var c *kv.TestClient
 
 func main() {
-	c = kv.NewSimpleClient()
+	c = kv.NewTestClient()
 	testLeaderChange()
 }
 
